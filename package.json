@@ -1,0 +1,16 @@
+{
+  "name": "apotheek-dashboard",
+  "version": "1.0.0",
+  "description": "Realtime apotheek telefoondashboard met AI urgentie-detectie via Vapi en Claude",
+  "private": true,
+  "scripts": {
+    "dev": "netlify dev"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@netlify/blobs": "^8.1.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.0.0"
+  }
+}
