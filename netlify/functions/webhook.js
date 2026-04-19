@@ -101,6 +101,44 @@ Reageer ALLEEN met JSON in het Nederlands:
   return best(quickResult, currentLevel) || { level: 'oranje', reason: 'AI-analyse mislukt — voorzorgsmaatregel.' };
 }
 
+// ─── Nederlandse samenvatting genereren ──────────────────────────────────────
+
+async function generateDutchSummary(transcript) {
+  if (!transcript || transcript.length === 0) return null;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+
+  const gesprek = transcript
+    .map(t => `${t.role === 'user' ? 'Beller' : 'Assistent'}: ${t.text}`)
+    .join('\n');
+
+  try {
+    const client  = new Anthropic({ apiKey });
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001', max_tokens: 200, temperature: 0,
+      messages: [{
+        role: 'user',
+        content: `Je bent een assistent voor Apotheek De Kroon in Nederland.
+Analyseer het volgende gesprek en geef:
+1. Een samenvatting in het Nederlands van 2-3 zinnen
+2. De urgentie: ROOD, ORANJE of GROEN
+
+REAGEER UITSLUITEND IN HET NEDERLANDS.
+Gebruik geen Engels in je antwoord.
+
+GESPREK:
+${gesprek}
+
+Geef je antwoord als doorlopende Nederlandse tekst (geen JSON). Begin direct met de samenvatting.`
+      }]
+    });
+    return message.content[0].text.trim();
+  } catch (err) {
+    console.error('[webhook] Samenvatting mislukt:', err.message);
+    return null;
+  }
+}
+
 // ─── Lambda handler ───────────────────────────────────────────────────────────
 
 exports.handler = async (event) => {
@@ -109,8 +147,8 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST')
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
 
-  // Log volledig event
-  console.log('EVENT:', event.body?.slice(0, 2000));
+  // === DEBUG LOGGING ===
+  console.log('=== WEBHOOK ONTVANGEN ===');
 
   let payload;
   try { payload = JSON.parse(event.body || '{}'); }
@@ -121,7 +159,10 @@ exports.handler = async (event) => {
   const call   = msg.call || {};
   const callId = call.id || msg.callId;
 
-  console.log(`[webhook] type=${type} callId=${callId}`);
+  console.log('Event type:', type);
+  console.log('Call ID:', callId);
+  console.log('Transcript type:', msg.transcriptType || 'n.v.t.');
+  console.log('Transcript tekst:', (msg.transcript || '').slice(0, 100));
 
   if (!callId)
     return { statusCode: 200, headers, body: JSON.stringify({ status: 'genegeerd', reden: 'Geen callId' }) };
@@ -190,12 +231,16 @@ exports.handler = async (event) => {
           .map(m => ({ role: m.role === 'bot' ? 'assistant' : m.role, text: m.message.trim() }));
         if (finalLines.length > 0) transcript = finalLines;
       }
-      meta.summary = msg.summary || null;
       await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
 
+      // Urgentie via Claude
       const urgency = await analyzeUrgency(transcript, currentUrg);
       currentUrg    = urgency;
       await redis.set(urgentieKey, urgency, { ex: REDIS_TTL });
+
+      // Genereer Nederlandse samenvatting (Vapi's summary is altijd Engels)
+      meta.summaryNl = await generateDutchSummary(transcript);
+      console.log('[webhook] NL samenvatting:', meta.summaryNl?.slice(0, 80));
       break;
     }
 

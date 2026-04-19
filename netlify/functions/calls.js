@@ -175,7 +175,8 @@ exports.handler = async (event) => {
       : (meta.callerName || 'Onbekende beller');
 
     const transcriptPartial = isActive ? (meta.transcriptPartial || '') : '';
-    const summary = meta.summary || call.summary || null;
+    // summaryNl (door Claude gegenereerd) heeft prioriteit over Vapi's Engelse summary
+    const summary = meta.summaryNl || meta.summary || null;
 
     return {
       id:               call.id,
