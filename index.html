@@ -409,12 +409,15 @@ function buildCard(call) {
 
   // Transcript: toon laatste 3 regels + live partieel fragment
   let transcriptHtml;
-  const hasFinished = call.transcript && call.transcript.length > 0;
-  const hasPartial  = live && call.transcriptPartial;
+  const finishedLines = Array.isArray(call.transcript)
+    ? call.transcript.filter(t => t && typeof t.text === 'string' && t.text.trim())
+    : [];
+  const hasFinished = finishedLines.length > 0;
+  const hasPartial  = live && call.transcriptPartial && call.transcriptPartial.trim();
 
   if (hasFinished || hasPartial) {
     const rows = hasFinished
-      ? call.transcript.slice(-3).map(t => `
+      ? finishedLines.slice(-3).map(t => `
           <div class="flex gap-2 items-start">
             <span class="text-[10px] font-bold uppercase ${t.role === 'user' ? 'text-slate-500' : 'text-primary'} mt-0.5 w-14 shrink-0">
               ${t.role === 'user' ? 'Beller' : 'Assist.'}

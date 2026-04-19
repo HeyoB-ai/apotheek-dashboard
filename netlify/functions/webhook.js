@@ -21,6 +21,39 @@ function getStoreWithContext() {
   return getStore(STORE_NAME);
 }
 
+// ─── Keyword veiligheidsnet (werkt ook zonder Claude) ────────────────────────
+
+const ROOD_KEYWORDS = [
+  'dood', 'sterven', 'stervend', 'doodgaan', 'ga dood', 'ga dood gaan',
+  'ambulance', 'noodgeval', 'spoed', 'spoedgeval', 'eerste hulp', 'eh ',
+  'anafylaxie', 'allergisch', 'allergische reactie',
+  'overdosis', 'teveel ingenomen', 'te veel ingenomen',
+  'bewusteloos', 'flauwgevallen', 'valt flauw',
+  'ademnood', 'kan niet ademen', 'ademhaling',
+  'hartaanval', 'beroerte', 'pijn op de borst', 'borst pijn',
+  'help', 'help me', 'ik ga dood', 'dacht dat ik dood',
+  'ziekenhuis', 'crisis'
+];
+
+const ORANJE_KEYWORDS = [
+  'pijn', 'bijwerking', 'bijwerkingen', 'wisselwerking',
+  'dringend', 'urgent', 'snel', 'zo snel mogelijk',
+  'ondraaglijk', 'heel slecht', 'erg slecht', 'niet goed',
+  'vergeten medicijn', 'vergeten medicatie', 'misselijk', 'overgeven',
+  'duizelig', 'duizeligheid', 'benauwdheid', 'benauwd'
+];
+
+function keywordUrgencyCheck(transcript) {
+  const text = transcript.map(t => t.text || '').join(' ').toLowerCase();
+  if (ROOD_KEYWORDS.some(kw => text.includes(kw))) {
+    return { level: 'rood', reason: 'Noodtermen gedetecteerd — directe actie vereist.' };
+  }
+  if (ORANJE_KEYWORDS.some(kw => text.includes(kw))) {
+    return { level: 'oranje', reason: 'Urgente termen gedetecteerd — binnenkort actie vereist.' };
+  }
+  return null;
+}
+
 // ─── Urgentie-analyse met Claude ─────────────────────────────────────────────
 
 async function analyzeUrgency(transcript) {
@@ -28,9 +61,13 @@ async function analyzeUrgency(transcript) {
     return { level: 'groen', reason: 'Gesprek net gestart, nog geen transcript.' };
   }
 
+  // Keyword pre-check als veiligheidsnet — werkt ook als Claude uitvalt
+  const quickResult = keywordUrgencyCheck(transcript);
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return { level: 'groen', reason: 'API-sleutel niet geconfigureerd.' };
+    console.warn('[webhook] ANTHROPIC_API_KEY niet aanwezig — gebruik keyword check');
+    return quickResult || { level: 'groen', reason: 'AI-analyse niet beschikbaar.' };
   }
 
   const client = new Anthropic({ apiKey });
@@ -42,23 +79,25 @@ async function analyzeUrgency(transcript) {
   try {
     const message = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 200,
+      max_tokens: 150,
       temperature: 0,
       messages: [
         {
           role: 'user',
-          content: `Je bent een urgentie-analist voor een Nederlandse apotheek. Analyseer dit telefoongesprek en bepaal het urgentieniveau.
+          content: `Je bent een urgentie-analist voor een Nederlandse apotheek. Je taak is LEVENS REDDEN. Analyseer dit gesprek en bepaal urgentieniveau.
 
 GESPREK:
 ${conversationText}
 
-URGENTIENIVEAUS (kies precies één):
-- rood   → Directe actie vereist: noodgeval, ernstige bijwerking, allergische reactie (anafylaxie), overdosis, bewustzijnsverlies, ademhalingsproblemen
-- oranje → Binnenkort actie vereist: dringende medicatievraag, mogelijke wisselwerking, ondraaglijke pijn, verwarring over dosering, vergeten medicatie bij chronische aandoening
-- groen  → Geen urgentie: herhaalrecept, openingstijden, prijsinformatie, algemene vraag, normaal advies
+URGENTIENIVEAUS — WEES STRENG, NIET MILD:
+- rood   → Bij ENIGE twijfel over gevaar: pijn, angst, "dood", spoed, noodgeval, allergie, overdosis, bewusteloos, ademnood, "eerste hulp", "ambulance", "ziekenhuis", "ik voel me slecht", "ik ga dood"
+- oranje → Dringend maar niet direct levensbedreigend: bijwerking, wisselwerking, dringende medicatievraag, onduidelijke dosering, misselijkheid, duizeligheid
+- groen  → ALLEEN bij 100% zeker routinevraag: herhaalrecept, openingstijden, prijs. Bij twijfel: NIET groen.
 
-Reageer UITSLUITEND met geldig JSON, geen extra tekst:
-{"level":"groen","reason":"Beschrijving max 80 tekens"}`
+REGEL: Bij enige medische zorg of ongemak → rood of oranje. Nooit groen als iemand zich slecht voelt.
+
+Reageer UITSLUITEND met geldig JSON:
+{"level":"groen","reason":"max 80 tekens"}`
         }
       ]
     });
@@ -68,14 +107,21 @@ Reageer UITSLUITEND met geldig JSON, geen extra tekst:
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (['rood', 'oranje', 'groen'].includes(parsed.level)) {
-        return { level: parsed.level, reason: parsed.reason || '' };
+        // Neem het strengste resultaat van Claude én keyword check
+        const claudeResult = { level: parsed.level, reason: parsed.reason || '' };
+        if (!quickResult) return claudeResult;
+        const priority = { rood: 2, oranje: 1, groen: 0 };
+        return priority[claudeResult.level] >= priority[quickResult.level] ? claudeResult : quickResult;
       }
     }
   } catch (err) {
-    console.error('[webhook] Urgentie-analyse mislukt:', err.message);
+    console.error('[webhook] Claude urgentie-analyse mislukt:', err.message);
+    console.error('[webhook] Model:', 'claude-haiku-4-5-20251001', '| API key aanwezig:', !!apiKey);
+    // Fallback naar keyword check
+    return quickResult || { level: 'oranje', reason: 'AI-analyse mislukt — voorzorgsmaatregel oranje.' };
   }
 
-  return { level: 'groen', reason: 'Automatische analyse niet beschikbaar.' };
+  return quickResult || { level: 'groen', reason: 'Geen urgente termen gevonden.' };
 }
 
 // ─── Handtekening verificatie ─────────────────────────────────────────────────
