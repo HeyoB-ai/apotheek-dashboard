@@ -7,9 +7,14 @@
 const VAPI_BASE    = 'https://api.vapi.ai';
 const MAX_CALLS    = 20;
 const URGENCY_RANK = { groen: 0, oranje: 1, rood: 2 };
+const CACHE_TTL_MS = 4000; // Vapi resultaat 4 seconden cachen (dashboard pollt elke 2s)
 
-// ─── In-memory urgentie-cache (persistent binnen warme Lambda-instantie) ──────
+// ─── In-memory urgentie-cache ─────────────────────────────────────────────────
 const URGENCY_CACHE = new Map(); // callId → { level, reason }
+
+// ─── Vapi response cache (voorkomt 429 rate-limit bij polling) ───────────────
+let vapiCache = null;
+let vapiCacheTime = 0;
 
 function mergeUrgency(callId, newUrgency) {
   const existing    = URGENCY_CACHE.get(callId);
@@ -76,21 +81,36 @@ exports.handler = async (event) => {
   if (!vapiKey)
     return { statusCode: 500, headers, body: JSON.stringify({ error: 'VAPI_KEY niet geconfigureerd' }) };
 
-  // ── Gesprekken ophalen van Vapi ────────────────────────────────────────────
+  // ── Gesprekken ophalen van Vapi (met cache om 429 te vermijden) ──────────
   let vapiCalls;
-  try {
-    const res = await fetch(`${VAPI_BASE}/call?limit=${MAX_CALLS}`, {
-      headers: { 'Authorization': `Bearer ${vapiKey}` }
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      console.error('[calls] Vapi fout:', res.status, err.slice(0, 200));
-      return { statusCode: 502, headers, body: JSON.stringify({ error: `Vapi API fout: ${res.status}` }) };
+  const now = Date.now();
+  if (vapiCache && (now - vapiCacheTime) < CACHE_TTL_MS) {
+    vapiCalls = vapiCache;
+  } else {
+    try {
+      const res = await fetch(`${VAPI_BASE}/call?limit=${MAX_CALLS}`, {
+        headers: { 'Authorization': `Bearer ${vapiKey}` }
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error('[calls] Vapi fout:', res.status, errText.slice(0, 200));
+        // Bij 429: geef gecachte data terug als die er is, anders fout
+        if (res.status === 429 && vapiCache) {
+          console.warn('[calls] Vapi 429 — gebruik cached data');
+          vapiCalls = vapiCache;
+        } else {
+          return { statusCode: 502, headers, body: JSON.stringify({ error: `Vapi API fout: ${res.status}` }) };
+        }
+      } else {
+        vapiCalls = await res.json();
+        vapiCache = vapiCalls;
+        vapiCacheTime = now;
+      }
+    } catch (err) {
+      console.error('[calls] Vapi fetch mislukt:', err.message);
+      if (vapiCache) return { statusCode: 200, headers, body: JSON.stringify(vapiCache) };
+      return { statusCode: 502, headers, body: JSON.stringify({ error: 'Vapi niet bereikbaar' }) };
     }
-    vapiCalls = await res.json();
-  } catch (err) {
-    console.error('[calls] Vapi fetch mislukt:', err.message);
-    return { statusCode: 502, headers, body: JSON.stringify({ error: 'Vapi niet bereikbaar' }) };
   }
 
   if (!Array.isArray(vapiCalls)) vapiCalls = [];
