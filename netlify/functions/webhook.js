@@ -1,7 +1,7 @@
 /**
  * Vapi.ai Webhook Handler
- * Ontvangt realtime transcriptie-events, slaat gesprekken op,
- * en bepaalt urgentie via Claude AI.
+ * Verwerkt call.started, transcript (partial+final), call.ended en legacy events.
+ * Slaat elk event direct op in Netlify Blobs zodat het dashboard live kan pollen.
  */
 
 const Anthropic = require('@anthropic-ai/sdk');
@@ -9,6 +9,17 @@ const { getStore } = require('@netlify/blobs');
 const crypto = require('crypto');
 
 const STORE_NAME = 'apotheek-calls';
+
+// ─── Blobs store met expliciete credentials als omgeving ze niet auto-injecteert ──
+
+function getStoreWithContext() {
+  const siteID = process.env.NETLIFY_SITE_ID;
+  const token = process.env.NETLIFY_AUTH_TOKEN || process.env.NETLIFY_TOKEN;
+  if (siteID && token) {
+    return getStore({ name: STORE_NAME, siteID, token });
+  }
+  return getStore(STORE_NAME);
+}
 
 // ─── Urgentie-analyse met Claude ─────────────────────────────────────────────
 
@@ -36,7 +47,7 @@ async function analyzeUrgency(transcript) {
       messages: [
         {
           role: 'user',
-          content: `Je bent een urgentie-analist voor een Nederlandse apotheek. Analyseer dit telefoongesprek nauwkeurig en bepaal het urgentieniveau.
+          content: `Je bent een urgentie-analist voor een Nederlandse apotheek. Analyseer dit telefoongesprek en bepaal het urgentieniveau.
 
 GESPREK:
 ${conversationText}
@@ -53,16 +64,11 @@ Reageer UITSLUITEND met geldig JSON, geen extra tekst:
     });
 
     const text = message.content[0].text.trim();
-
-    // Robuust JSON parsen — pak eerste {...} blok
     const jsonMatch = text.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (['rood', 'oranje', 'groen'].includes(parsed.level)) {
-        return {
-          level: parsed.level,
-          reason: parsed.reason || ''
-        };
+        return { level: parsed.level, reason: parsed.reason || '' };
       }
     }
   } catch (err) {
@@ -77,7 +83,6 @@ Reageer UITSLUITEND met geldig JSON, geen extra tekst:
 function verifySignature(body, signature, secret) {
   try {
     const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
-    // Vapi stuurt soms met of zonder 'sha256=' prefix
     const cleaned = signature.replace(/^sha256=/, '');
     const expectedBuf = Buffer.from(expected, 'hex');
     const sigBuf = Buffer.from(cleaned, 'hex');
@@ -88,7 +93,7 @@ function verifySignature(body, signature, secret) {
   }
 }
 
-// ─── Transcript-bericht normaliseren ─────────────────────────────────────────
+// ─── Berichten normaliseren (end-of-call-report formaat) ─────────────────────
 
 function parseMessages(messages) {
   if (!Array.isArray(messages)) return [];
@@ -100,6 +105,26 @@ function parseMessages(messages) {
       time: typeof m.time === 'number' ? m.time : null
     }))
     .filter(m => m.text.length > 0);
+}
+
+// ─── Nieuw gesprek-record aanmaken ────────────────────────────────────────────
+
+function createRecord(callId, call) {
+  return {
+    id: callId,
+    startTime: call.createdAt || call.startedAt || new Date().toISOString(),
+    endTime: null,
+    status: 'active',
+    phoneNumber: call.customer?.number || call.phoneNumber || 'Onbekend',
+    callerName: call.customer?.name || 'Onbekende beller',
+    transcript: [],          // definitieve fragmenten
+    transcriptPartial: '',   // huidig partieel fragment (live weergave)
+    transcriptRaw: null,
+    urgency: { level: 'groen', reason: 'Gesprek gestart.' },
+    summary: null,
+    recordingUrl: null,
+    lastUpdated: new Date().toISOString()
+  };
 }
 
 // ─── Lambda handler ───────────────────────────────────────────────────────────
@@ -114,10 +139,7 @@ exports.handler = async (event) => {
   // Verifieer Vapi handtekening als geheim is ingesteld
   const secret = process.env.VAPI_WEBHOOK_SECRET;
   if (secret) {
-    const sig =
-      event.headers['x-vapi-signature'] ||
-      event.headers['X-Vapi-Signature'];
-
+    const sig = event.headers['x-vapi-signature'] || event.headers['X-Vapi-Signature'];
     if (!sig || !verifySignature(event.body, sig, secret)) {
       console.warn('[webhook] Ongeldige of ontbrekende handtekening');
       return { statusCode: 401, headers, body: JSON.stringify({ error: 'Unauthorized' }) };
@@ -131,124 +153,141 @@ exports.handler = async (event) => {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Ongeldige JSON' }) };
   }
 
-  // Vapi stuurt alles in payload.message
+  // Vapi stuurt events in payload.message (of soms direct in payload)
   const msg = payload.message || payload;
   const type = msg.type;
   const call = msg.call || {};
-  const callId = call.id;
+  const callId = call.id || msg.callId;
+
+  console.log(`[webhook] event=${type} callId=${callId}`);
 
   if (!callId) {
+    console.warn('[webhook] Geen call-ID gevonden, payload:', JSON.stringify(payload).slice(0, 200));
     return { statusCode: 200, headers, body: JSON.stringify({ status: 'genegeerd', reden: 'Geen call-ID' }) };
   }
 
-  const store = getStore(STORE_NAME);
+  let store;
+  try {
+    store = getStoreWithContext();
+  } catch (err) {
+    console.error('[webhook] Blobs store init mislukt:', err.message);
+    return { statusCode: 200, headers, body: JSON.stringify({ status: 'ok', waarschuwing: 'Blobs niet beschikbaar' }) };
+  }
 
   // Laad bestaand gesprek of maak nieuw aan
-  let record = await store.get(callId, { type: 'json' });
+  let record;
+  try {
+    record = await store.get(callId, { type: 'json' });
+  } catch {
+    record = null;
+  }
 
   if (!record) {
-    record = {
-      id: callId,
-      startTime: call.createdAt || new Date().toISOString(),
-      endTime: null,
-      status: 'active',
-      phoneNumber: call.customer?.number || 'Onbekend',
-      callerName: call.customer?.name || 'Onbekende beller',
-      transcript: [],
-      transcriptRaw: null,
-      urgency: { level: 'groen', reason: 'Gesprek gestart.' },
-      summary: null,
-      recordingUrl: null,
-      lastUpdated: new Date().toISOString()
-    };
+    record = createRecord(callId, call);
   }
 
   let needsUrgencyUpdate = false;
 
   switch (type) {
-    // ── Realtime transcript-fragment ─────────────────────────────────────────
+
+    // ── Gesprek gestart (dot-notatie + legacy) ────────────────────────────────
+    case 'call.started':
+    case 'call-start':
+    case 'assistant-request': {
+      record.status = 'active';
+      record.startTime = call.createdAt || call.startedAt || record.startTime;
+      record.phoneNumber = call.customer?.number || record.phoneNumber;
+      record.callerName = call.customer?.name || record.callerName;
+      console.log(`[webhook] Gesprek gestart: ${callId}`);
+      break;
+    }
+
+    // ── Live transcriptie ─────────────────────────────────────────────────────
     case 'transcript': {
-      // Sla alleen definitieve (niet-partiële) fragmenten op
-      if (msg.transcriptType === 'final' && msg.transcript) {
+      const text = (msg.transcript || '').trim();
+      const role = msg.role || 'user';
+
+      if (msg.transcriptType === 'partial') {
+        // Partieel: toon live maar sla nog niet permanent op
+        record.transcriptPartial = text;
+      } else if (msg.transcriptType === 'final' && text) {
+        // Definitief: voeg toe aan transcript en reset partieel
         record.transcript.push({
-          role: msg.role || 'user',
-          text: msg.transcript.trim(),
+          role,
+          text,
           time: new Date().toISOString()
         });
+        record.transcriptPartial = '';
         needsUrgencyUpdate = true;
+        console.log(`[webhook] Transcript final (${role}): ${text.slice(0, 60)}`);
       }
       break;
     }
 
-    // ── Einde-gesprek rapport (volledig transcript + samenvatting) ───────────
+    // ── Gesprek beëindigd (dot-notatie + legacy) ──────────────────────────────
+    case 'call.ended':
     case 'end-of-call-report': {
       record.status = 'ended';
       record.endTime = new Date().toISOString();
+      record.transcriptPartial = '';
       record.summary = msg.summary || null;
       record.recordingUrl = msg.recordingUrl || null;
 
+      // Volledig transcript van Vapi heeft prioriteit over live-opgebouwde versie
       if (msg.messages && Array.isArray(msg.messages) && msg.messages.length > 0) {
-        // Gestructureerde berichten verdienen de voorkeur
         record.transcript = parseMessages(msg.messages);
       } else if (typeof msg.transcript === 'string' && msg.transcript.trim()) {
-        // Fallback: bewaar als ruwe tekst
         record.transcriptRaw = msg.transcript;
       }
 
       needsUrgencyUpdate = true;
+      console.log(`[webhook] Gesprek beëindigd: ${callId}, ${record.transcript.length} fragmenten`);
       break;
     }
 
-    // ── Gesprek opgehangen ───────────────────────────────────────────────────
+    // ── Gesprek opgehangen ────────────────────────────────────────────────────
     case 'hang': {
       record.status = 'ended';
       record.endTime = record.endTime || new Date().toISOString();
+      record.transcriptPartial = '';
       if (record.transcript.length > 0) needsUrgencyUpdate = true;
       break;
     }
 
-    // ── Statuswijziging ──────────────────────────────────────────────────────
+    // ── Statuswijziging ───────────────────────────────────────────────────────
     case 'status-update': {
-      if (msg.status === 'ended' || msg.status === 'in-progress') {
-        if (msg.status === 'ended') {
-          record.status = 'ended';
-          record.endTime = record.endTime || new Date().toISOString();
-          if (record.transcript.length > 0) needsUrgencyUpdate = true;
-        }
+      if (msg.status === 'ended') {
+        record.status = 'ended';
+        record.endTime = record.endTime || new Date().toISOString();
+        record.transcriptPartial = '';
+        if (record.transcript.length > 0) needsUrgencyUpdate = true;
       }
       break;
     }
 
-    // ── Gesprek start ────────────────────────────────────────────────────────
-    case 'call-start':
-    case 'assistant-request': {
-      // Record is al aangemaakt hierboven
-      break;
-    }
-
     default:
-      // Onbekend event-type — sla record toch op met bijgewerkte timestamp
+      console.log(`[webhook] Onbekend event type: ${type}`);
       break;
   }
 
-  // Urgentie bepalen via Claude als er nieuwe transcriptdata is
-  if (needsUrgencyUpdate) {
+  // Urgentie via Claude — alleen bij nieuwe definitieve transcriptdata
+  if (needsUrgencyUpdate && record.transcript.length > 0) {
     record.urgency = await analyzeUrgency(record.transcript);
   }
 
   record.lastUpdated = new Date().toISOString();
 
-  await store.set(callId, JSON.stringify(record));
+  try {
+    await store.set(callId, JSON.stringify(record));
+  } catch (err) {
+    console.error('[webhook] Opslaan mislukt:', err.message);
+  }
 
-  console.log(`[webhook] ${type} | callId=${callId} | urgentie=${record.urgency.level}`);
+  console.log(`[webhook] Opgeslagen | ${type} | ${callId} | urgentie=${record.urgency.level}`);
 
   return {
     statusCode: 200,
     headers,
-    body: JSON.stringify({
-      status: 'ok',
-      callId,
-      urgency: record.urgency
-    })
+    body: JSON.stringify({ status: 'ok', callId, urgency: record.urgency })
   };
 };

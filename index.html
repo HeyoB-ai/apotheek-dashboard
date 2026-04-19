@@ -407,18 +407,29 @@ function buildCard(call) {
   const live   = call.status === 'active';
   const reason = call.urgency?.reason || 'Urgentie-analyse in verwerking…';
 
-  // Transcript: toon laatste 3 regels compact
+  // Transcript: toon laatste 3 regels + live partieel fragment
   let transcriptHtml;
-  if (call.transcript && call.transcript.length > 0) {
-    transcriptHtml = `
-      <div class="transcript-scroll bg-slate-950/60 rounded-2xl p-3 space-y-2 max-h-28 overflow-y-auto">
-        ${call.transcript.slice(-3).map(t => `
+  const hasFinished = call.transcript && call.transcript.length > 0;
+  const hasPartial  = live && call.transcriptPartial;
+
+  if (hasFinished || hasPartial) {
+    const rows = hasFinished
+      ? call.transcript.slice(-3).map(t => `
           <div class="flex gap-2 items-start">
             <span class="text-[10px] font-bold uppercase ${t.role === 'user' ? 'text-slate-500' : 'text-primary'} mt-0.5 w-14 shrink-0">
               ${t.role === 'user' ? 'Beller' : 'Assist.'}
             </span>
             <p class="text-xs text-slate-300 leading-relaxed">${esc(t.text)}</p>
-          </div>`).join('')}
+          </div>`).join('')
+      : '';
+    const partialRow = hasPartial ? `
+          <div class="flex gap-2 items-start opacity-60">
+            <span class="text-[10px] font-bold uppercase text-slate-500 mt-0.5 w-14 shrink-0">Live…</span>
+            <p class="text-xs text-slate-400 leading-relaxed italic">${esc(call.transcriptPartial)}</p>
+          </div>` : '';
+    transcriptHtml = `
+      <div class="transcript-scroll bg-slate-950/60 rounded-2xl p-3 space-y-2 max-h-28 overflow-y-auto">
+        ${rows}${partialRow}
       </div>`;
   } else if (call.transcriptRaw) {
     transcriptHtml = `
