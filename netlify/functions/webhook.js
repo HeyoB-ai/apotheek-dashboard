@@ -12,6 +12,10 @@ const { Redis }   = require('@upstash/redis');
 const REDIS_TTL   = 3600; // 1 uur
 const URGENCY_RANK = { groen: 0, oranje: 1, rood: 2 };
 
+function best(a, b) {
+  return (URGENCY_RANK[a?.level] ?? 0) >= (URGENCY_RANK[b?.level] ?? 0) ? a : b;
+}
+
 // ─── Redis client ──────────────────────────────────────────────────────────────
 
 function getRedis() {
@@ -52,11 +56,6 @@ function keywordUrgency(text) {
 async function analyzeUrgency(transcript, currentLevel) {
   const fullText    = transcript.map(t => t.text || '').join(' ');
   const quickResult = keywordUrgency(fullText);
-
-  // Urgentie gaat alleen omhoog
-  function best(a, b) {
-    return (URGENCY_RANK[a?.level] ?? 0) >= (URGENCY_RANK[b?.level] ?? 0) ? a : b;
-  }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return best(quickResult, currentLevel) || { level: 'groen', reason: 'AI niet geconfigureerd.' };
@@ -256,25 +255,35 @@ exports.handler = async (event) => {
       break;
 
     case 'conversation-update': {
-      // Log volledige structuur zodat we de velden zien
       console.log('CONV:', JSON.stringify(msg).slice(0, 2000));
 
-      // conversation-update bevat soms een messages array — keyword check daarop
-      const convMessages = msg.messages || msg.conversation || [];
-      if (Array.isArray(convMessages) && convMessages.length > 0) {
-        const convText = convMessages
-          .map(m => m.message || m.text || m.content || '')
-          .join(' ');
-        if (convText.trim()) {
-          const kwUrg = keywordUrgency(convText);
+      // msg.conversation bevat array van {role, content} objecten
+      const convArr = msg.conversation || msg.messages || [];
+      if (Array.isArray(convArr) && convArr.length > 0) {
+        // Zet om naar transcript-formaat {role, text}
+        const lines = convArr
+          .filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'bot')
+          .map(m => ({
+            role: m.role === 'bot' ? 'assistant' : m.role,
+            text: (m.content || m.message || m.text || '').trim(),
+            time: m.time || new Date().toISOString()
+          }))
+          .filter(m => m.text);
+
+        if (lines.length > 0) {
+          // Overschrijf transcript met meest actuele staat
+          transcript = lines;
+          await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
+
+          // Urgentie op basis van user-berichten
+          const userText = lines.filter(m => m.role === 'user').map(m => m.text).join(' ');
+          const kwUrg = keywordUrgency(userText);
           if (kwUrg) {
             const updated = best(kwUrg, currentUrg);
-            if (updated.level !== currentUrg.level) {
-              currentUrg = updated;
-              await redis.set(urgentieKey, currentUrg, { ex: REDIS_TTL });
-              console.log(`[webhook] conversation-update keyword urgentie: ${currentUrg.level}`);
-            }
+            currentUrg = updated;
+            await redis.set(urgentieKey, currentUrg, { ex: REDIS_TTL });
           }
+          console.log(`[webhook] conversation-update: ${lines.length} regels, urgentie: ${currentUrg.level}`);
         }
       }
       break;
