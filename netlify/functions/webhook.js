@@ -255,6 +255,31 @@ exports.handler = async (event) => {
       }
       break;
 
+    case 'conversation-update': {
+      // Log volledige structuur zodat we de velden zien
+      console.log('CONV:', JSON.stringify(msg).slice(0, 2000));
+
+      // conversation-update bevat soms een messages array — keyword check daarop
+      const convMessages = msg.messages || msg.conversation || [];
+      if (Array.isArray(convMessages) && convMessages.length > 0) {
+        const convText = convMessages
+          .map(m => m.message || m.text || m.content || '')
+          .join(' ');
+        if (convText.trim()) {
+          const kwUrg = keywordUrgency(convText);
+          if (kwUrg) {
+            const updated = best(kwUrg, currentUrg);
+            if (updated.level !== currentUrg.level) {
+              currentUrg = updated;
+              await redis.set(urgentieKey, currentUrg, { ex: REDIS_TTL });
+              console.log(`[webhook] conversation-update keyword urgentie: ${currentUrg.level}`);
+            }
+          }
+        }
+      }
+      break;
+    }
+
     default:
       console.log(`[webhook] Onbekend event: ${type}`);
   }
