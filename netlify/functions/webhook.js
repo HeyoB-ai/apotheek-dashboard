@@ -257,10 +257,8 @@ exports.handler = async (event) => {
     case 'conversation-update': {
       console.log('CONV:', JSON.stringify(msg).slice(0, 2000));
 
-      // msg.conversation bevat array van {role, content} objecten
       const convArr = msg.conversation || msg.messages || [];
       if (Array.isArray(convArr) && convArr.length > 0) {
-        // Zet om naar transcript-formaat {role, text}
         const lines = convArr
           .filter(m => m.role === 'user' || m.role === 'assistant' || m.role === 'bot')
           .map(m => ({
@@ -271,18 +269,63 @@ exports.handler = async (event) => {
           .filter(m => m.text);
 
         if (lines.length > 0) {
-          // Overschrijf transcript met meest actuele staat
           transcript = lines;
           await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
 
-          // Urgentie op basis van user-berichten
-          const userText = lines.filter(m => m.role === 'user').map(m => m.text).join(' ');
-          const kwUrg = keywordUrgency(userText);
-          if (kwUrg) {
-            const updated = best(kwUrg, currentUrg);
-            currentUrg = updated;
-            await redis.set(urgentieKey, currentUrg, { ex: REDIS_TTL });
+          // Claude urgentie-analyse op live gesprek
+          const gesprek = lines
+            .map(l => `${l.role === 'user' ? 'Beller' : 'Assistent'}: ${l.text}`)
+            .join('\n');
+
+          let newUrg = currentUrg;
+          const apiKey = process.env.ANTHROPIC_API_KEY;
+          if (apiKey) {
+            try {
+              const client = new Anthropic({ apiKey });
+              const response = await client.messages.create({
+                model: 'claude-haiku-4-5-20251001', max_tokens: 10, temperature: 0,
+                messages: [{
+                  role: 'user',
+                  content: `Je bent een Nederlandse apotheek triage assistent.
+Analyseer dit gesprek en bepaal de urgentie.
+
+ROOD alleen als: beller in direct gevaar, medische nood, bewusteloos, hartaanval, ernstige allergische reactie, niet kunnen ademen, zegt dat hij doodgaat.
+
+ORANJE alleen als: beller heeft actieve pijn/klachten, vraagt advies over eigen symptomen, medicatiefout, bijwerkingen die de beller nu ervaart.
+
+GROEN voor alles anders: informatievragen, openingstijden, recepten, algemene medicatie-informatie, prijsvragen.
+
+Gesprek:
+${gesprek}
+
+Antwoord met alleen één woord: ROOD, ORANJE of GROEN`
+                }]
+              });
+              const word = response.content[0].text.trim().toLowerCase();
+              if (['rood', 'oranje', 'groen'].includes(word)) {
+                const claudeUrg = {
+                  level: word,
+                  reason: word === 'rood' ? 'Medische nood gedetecteerd.'
+                        : word === 'oranje' ? 'Actieve klachten gedetecteerd.'
+                        : 'Routinevraag.'
+                };
+                newUrg = best(claudeUrg, currentUrg);
+              }
+            } catch (err) {
+              console.error('[webhook] Claude live analyse mislukt:', err.message);
+              // Keyword als vangnet
+              const userText = lines.filter(l => l.role === 'user').map(l => l.text).join(' ');
+              const kwUrg = keywordUrgency(userText);
+              if (kwUrg) newUrg = best(kwUrg, currentUrg);
+            }
+          } else {
+            const userText = lines.filter(l => l.role === 'user').map(l => l.text).join(' ');
+            const kwUrg = keywordUrgency(userText);
+            if (kwUrg) newUrg = best(kwUrg, currentUrg);
           }
+
+          currentUrg = newUrg;
+          await redis.set(urgentieKey, currentUrg, { ex: REDIS_TTL });
           console.log(`[webhook] conversation-update: ${lines.length} regels, urgentie: ${currentUrg.level}`);
         }
       }
