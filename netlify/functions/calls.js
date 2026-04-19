@@ -1,30 +1,31 @@
 /**
- * Calls API — haalt gesprekken op via Vapi API.
- * In-memory urgentie-cache: urgentie gaat alleen omhoog.
- * Geen Netlify Blobs.
+ * Calls API
+ * - Haalt gesprekken op via Vapi API (met 4s cache tegen 429)
+ * - Verrijkt met live transcript + urgentie uit Upstash Redis
+ * - Urgentie gaat alleen omhoog
  */
+
+const { Redis } = require('@upstash/redis');
 
 const VAPI_BASE    = 'https://api.vapi.ai';
 const MAX_CALLS    = 20;
+const CACHE_TTL_MS = 4000;
 const URGENCY_RANK = { groen: 0, oranje: 1, rood: 2 };
-const CACHE_TTL_MS = 4000; // Vapi resultaat 4 seconden cachen (dashboard pollt elke 2s)
 
-// ─── In-memory urgentie-cache ─────────────────────────────────────────────────
-const URGENCY_CACHE = new Map(); // callId → { level, reason }
-
-// ─── Vapi response cache (voorkomt 429 rate-limit bij polling) ───────────────
-let vapiCache = null;
+// ─── Vapi response cache (voorkomt 429) ──────────────────────────────────────
+let vapiCache     = null;
 let vapiCacheTime = 0;
 
-function mergeUrgency(callId, newUrgency) {
-  const existing    = URGENCY_CACHE.get(callId);
-  const existRank   = URGENCY_RANK[existing?.level]    ?? -1;
-  const newRank     = URGENCY_RANK[newUrgency?.level]  ?? 0;
-  if (newRank > existRank) URGENCY_CACHE.set(callId, newUrgency);
-  return URGENCY_CACHE.get(callId) || newUrgency;
+// ─── Redis client ──────────────────────────────────────────────────────────────
+
+function getRedis() {
+  const url   = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  return new Redis({ url, token });
 }
 
-// ─── Keyword urgentie-check ───────────────────────────────────────────────────
+// ─── Keyword urgentie-check als fallback ─────────────────────────────────────
 
 const ROOD_KW = [
   'dood','sterven','stervend','doodgaan','ga dood','ik ga dood','dacht dat ik dood',
@@ -48,6 +49,12 @@ function keywordUrgency(text) {
   if (ORANJE_KW.some(kw => t.includes(kw)))
     return { level: 'oranje', reason: 'Urgente termen gedetecteerd — binnenkort actie vereist.' };
   return { level: 'groen',  reason: 'Geen urgente termen gevonden.' };
+}
+
+function bestUrgency(a, b) {
+  const ra = URGENCY_RANK[a?.level] ?? -1;
+  const rb = URGENCY_RANK[b?.level] ?? -1;
+  return ra >= rb ? a : b;
 }
 
 // ─── Vapi berichten → dashboard transcript ────────────────────────────────────
@@ -81,7 +88,7 @@ exports.handler = async (event) => {
   if (!vapiKey)
     return { statusCode: 500, headers, body: JSON.stringify({ error: 'VAPI_KEY niet geconfigureerd' }) };
 
-  // ── Gesprekken ophalen van Vapi (met cache om 429 te vermijden) ──────────
+  // ── Gesprekken ophalen van Vapi (met cache) ────────────────────────────────
   let vapiCalls;
   const now = Date.now();
   if (vapiCache && (now - vapiCacheTime) < CACHE_TTL_MS) {
@@ -94,62 +101,99 @@ exports.handler = async (event) => {
       if (!res.ok) {
         const errText = await res.text();
         console.error('[calls] Vapi fout:', res.status, errText.slice(0, 200));
-        // Bij 429: geef gecachte data terug als die er is, anders fout
-        if (res.status === 429 && vapiCache) {
-          console.warn('[calls] Vapi 429 — gebruik cached data');
-          vapiCalls = vapiCache;
-        } else {
-          return { statusCode: 502, headers, body: JSON.stringify({ error: `Vapi API fout: ${res.status}` }) };
-        }
+        if (vapiCache) { vapiCalls = vapiCache; }
+        else return { statusCode: 502, headers, body: JSON.stringify({ error: `Vapi API fout: ${res.status}` }) };
       } else {
-        vapiCalls = await res.json();
-        vapiCache = vapiCalls;
+        vapiCalls     = await res.json();
+        vapiCache     = vapiCalls;
         vapiCacheTime = now;
       }
     } catch (err) {
       console.error('[calls] Vapi fetch mislukt:', err.message);
-      if (vapiCache) return { statusCode: 200, headers, body: JSON.stringify(vapiCache) };
-      return { statusCode: 502, headers, body: JSON.stringify({ error: 'Vapi niet bereikbaar' }) };
+      if (vapiCache) vapiCalls = vapiCache;
+      else return { statusCode: 502, headers, body: JSON.stringify({ error: 'Vapi niet bereikbaar' }) };
     }
   }
 
   if (!Array.isArray(vapiCalls)) vapiCalls = [];
 
-  // ── Mappen + urgentie ─────────────────────────────────────────────────────
+  // ── Redis verrijkingsdata ophalen ──────────────────────────────────────────
+  const redis = getRedis();
+  const enrichmentMap = {};
+
+  if (redis && vapiCalls.length > 0) {
+    try {
+      // Batch fetch: transcript, urgentie en meta voor alle calls tegelijk
+      const pipeline = redis.pipeline();
+      for (const call of vapiCalls) {
+        pipeline.get(`transcript-${call.id}`);
+        pipeline.get(`urgentie-${call.id}`);
+        pipeline.get(`meta-${call.id}`);
+      }
+      const results = await pipeline.exec();
+
+      vapiCalls.forEach((call, i) => {
+        enrichmentMap[call.id] = {
+          transcript:        results[i * 3]     || null,
+          urgency:           results[i * 3 + 1] || null,
+          meta:              results[i * 3 + 2] || {}
+        };
+      });
+    } catch (err) {
+      console.warn('[calls] Redis ophalen mislukt:', err.message);
+    }
+  }
+
+  // ── Mappen + verrijken ────────────────────────────────────────────────────
   const calls = vapiCalls.map(call => {
-    const isActive   = call.status === 'in-progress';
-    const transcript = parseVapiMessages(call.messages);
-    const transcriptText = transcript.map(t => t.text).join(' ');
+    const enrich  = enrichmentMap[call.id] || {};
+    const isActive = call.status === 'in-progress';
 
-    // Urgentie: keyword check → cache merge (gaat alleen omhoog)
-    const computed = keywordUrgency(transcriptText);
-    const urgency  = mergeUrgency(call.id, computed);
+    // Transcript: Redis (live) heeft prioriteit voor actieve gesprekken
+    const vapiTranscript  = parseVapiMessages(call.messages);
+    const redisTranscript = Array.isArray(enrich.transcript) ? enrich.transcript : null;
+    const transcript      = (isActive && redisTranscript?.length > 0)
+      ? redisTranscript
+      : (vapiTranscript.length > 0 ? vapiTranscript : (redisTranscript || []));
 
-    // Telefoonnummer
-    const phoneNumber = call.customer?.number || call.phoneNumber || 'Onbekend';
+    const transcriptText = transcript.map(t => t.text || '').join(' ');
 
-    // Naam: als onbekend, toon telefoonnummer als identifier
+    // Urgentie: Redis (Claude) vs keyword — neem hoogste
+    const keywordUrg  = keywordUrgency(transcriptText);
+    const urgency     = bestUrgency(enrich.urgency, keywordUrg);
+
+    // Telefoonnummer — meerdere veldpaden proberen
+    const meta = enrich.meta || {};
+    const phoneNumber = call.customer?.number
+      || call.customer?.phoneNumber
+      || call.phoneNumber
+      || meta.phoneNumber
+      || 'Onbekend';
+
     const callerName = (call.customer?.name && call.customer.name !== 'Onbekende beller')
       ? call.customer.name
-      : 'Onbekende beller';
+      : (meta.callerName || 'Onbekende beller');
+
+    const transcriptPartial = isActive ? (meta.transcriptPartial || '') : '';
+    const summary = meta.summary || call.summary || null;
 
     return {
-      id:                call.id,
-      status:            isActive ? 'active' : 'ended',
+      id:               call.id,
+      status:           isActive ? 'active' : 'ended',
       phoneNumber,
       callerName,
-      startTime:         call.startedAt || call.createdAt,
-      endTime:           call.endedAt   || null,
+      startTime:        call.startedAt || call.createdAt,
+      endTime:          call.endedAt   || null,
       transcript,
-      transcriptPartial: '',
-      transcriptRaw:     typeof call.transcript === 'string' ? call.transcript : null,
+      transcriptPartial,
+      transcriptRaw:    typeof call.transcript === 'string' ? call.transcript : null,
       urgency,
-      summary:           call.summary   || null,
-      lastUpdated:       call.updatedAt || call.endedAt || call.startedAt || call.createdAt
+      summary,
+      lastUpdated:      meta.updatedAt || call.updatedAt || call.endedAt || call.startedAt || call.createdAt
     };
   });
 
-  // Actief eerst, dan rood→oranje→groen, dan nieuwste boven
+  // Actief eerst, dan urgentie omlaag, dan nieuwste boven
   calls.sort((a, b) => {
     if (a.status === 'active' && b.status !== 'active') return -1;
     if (b.status === 'active' && a.status !== 'active') return  1;

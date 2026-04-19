@@ -290,6 +290,35 @@ tailwind.config = {
   <div class="h-24 lg:hidden"></div>
 </main>
 
+<!-- ── Gesprek detail modal ──────────────────────────────────────────── -->
+<div id="callModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onclick="if(event.target===this)closeModal()">
+  <div class="bg-slate-900 rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-slate-700 shadow-2xl">
+    <!-- Header -->
+    <div id="modalBar" class="h-2 w-full rounded-t-3xl"></div>
+    <div class="flex items-start justify-between p-6 pb-4">
+      <div>
+        <p id="modalPhone" class="text-2xl font-black text-white"></p>
+        <p id="modalMeta"  class="text-sm text-slate-400 mt-1"></p>
+      </div>
+      <button onclick="closeModal()" class="text-slate-500 hover:text-white transition-colors ml-4 shrink-0">
+        <span class="material-symbols-outlined text-3xl">close</span>
+      </button>
+    </div>
+    <!-- Urgentie badge -->
+    <div id="modalUrgency" class="mx-6 mb-4 px-4 py-3 rounded-2xl border text-sm"></div>
+    <!-- Samenvatting -->
+    <div id="modalSummaryWrap" class="mx-6 mb-4 p-4 bg-slate-800/60 rounded-2xl hidden">
+      <p class="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">Samenvatting</p>
+      <p id="modalSummary" class="text-sm text-slate-300 leading-relaxed"></p>
+    </div>
+    <!-- Transcriptie -->
+    <div class="mx-6 mb-6 flex-1 overflow-hidden flex flex-col">
+      <p class="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Transcriptie</p>
+      <div id="modalTranscript" class="transcript-scroll overflow-y-auto space-y-3 flex-1 bg-black/30 rounded-2xl p-4"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Bottom nav (alleen mobiel) ───────────────────────────────────── -->
 <nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 lg:hidden bg-slate-900/90 backdrop-blur-lg rounded-t-3xl border-t border-slate-800/50 shadow-2xl">
   <div class="flex flex-col items-center justify-center bg-primary text-slate-900 rounded-2xl px-6 py-2">
@@ -580,29 +609,109 @@ function updateRecentTable(calls) {
     return;
   }
 
-  tbody.innerHTML = calls.map(call => {
+  // Sla calls op voor modal
+  window._recentCalls = calls;
+
+  tbody.innerHTML = calls.map((call, idx) => {
     const lvl     = call.urgency?.level || 'groen';
     const chip    = TABLE_CHIP[lvl] || TABLE_CHIP.groen;
+    const phone   = (call.phoneNumber && call.phoneNumber !== 'Onbekend') ? fmtTel(call.phoneNumber) : 'Onbekend';
     const summary = (call.summary || call.urgency?.reason || '—').slice(0, 90);
+    const barColor = { rood: '#dc2626', oranje: '#f97316', groen: '#10b981' }[lvl] || '#10b981';
 
     return `
-      <tr class="bg-slate-900/40 hover:bg-slate-800/60 transition-colors border border-slate-800">
-        <td class="px-6 py-4 first:rounded-l-2xl font-medium text-slate-400 text-sm whitespace-nowrap">
+      <tr class="bg-slate-900/40 hover:bg-slate-800/60 transition-colors cursor-pointer border border-slate-800"
+          onclick="openModal(${idx})" title="Klik voor volledig verslag">
+        <td class="px-2 py-0 w-1 first:rounded-l-2xl">
+          <div style="width:4px;height:48px;background:${barColor};border-radius:4px"></div>
+        </td>
+        <td class="px-4 py-4 font-medium text-slate-400 text-sm whitespace-nowrap">
           ${fmtTime(call.endTime || call.lastUpdated)}
         </td>
-        <td class="px-6 py-4">
-          <p class="font-bold text-slate-200 text-sm">${esc(call.callerName)}</p>
+        <td class="px-4 py-4">
+          <p class="font-bold text-slate-200 text-sm">${esc(phone)}</p>
           <p class="text-xs text-slate-400 mt-0.5 max-w-sm truncate">${esc(summary)}</p>
         </td>
-        <td class="px-6 py-4 text-slate-400 text-sm whitespace-nowrap">
+        <td class="px-4 py-4 text-slate-400 text-sm whitespace-nowrap">
           ${fmtDuur(call.startTime, call.endTime)}
         </td>
-        <td class="px-6 py-4 last:rounded-r-2xl text-right">
+        <td class="px-4 py-4 last:rounded-r-2xl text-right">
           <span class="px-3 py-1 ${chip.cls} text-[10px] font-black rounded-full border">${chip.label}</span>
         </td>
       </tr>`;
   }).join('');
 }
+
+// ── Gesprek detail modal ──────────────────────────────────────────────
+
+const URGENCY_BAR_COLOR  = { rood: '#dc2626', oranje: '#f97316', groen: '#10b981' };
+const URGENCY_BADGE_MODAL = {
+  rood:   'bg-red-600/20 text-red-400 border-red-600/40',
+  oranje: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+  groen:  'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+};
+const URGENCY_LABEL_MODAL = {
+  rood:   'URGENT — Nu actie vereist',
+  oranje: 'AANDACHT — Binnenkort actie',
+  groen:  'NORMAAL — Geen urgentie'
+};
+
+function openModal(idx) {
+  const call = (window._recentCalls || [])[idx];
+  if (!call) return;
+
+  const lvl   = call.urgency?.level || 'groen';
+  const phone = (call.phoneNumber && call.phoneNumber !== 'Onbekend')
+    ? fmtTel(call.phoneNumber) : 'Onbekend nummer';
+
+  document.getElementById('modalBar').style.background    = URGENCY_BAR_COLOR[lvl] || '#10b981';
+  document.getElementById('modalPhone').textContent        = phone;
+  document.getElementById('modalMeta').textContent         =
+    `${fmtTime(call.startTime)} → ${fmtTime(call.endTime)}  ·  Duur: ${fmtDuur(call.startTime, call.endTime)}`;
+
+  const urgencyEl = document.getElementById('modalUrgency');
+  urgencyEl.className = `mx-6 mb-4 px-4 py-3 rounded-2xl border text-sm ${URGENCY_BADGE_MODAL[lvl]}`;
+  urgencyEl.innerHTML = `<span class="font-black uppercase tracking-wide block mb-0.5">${URGENCY_LABEL_MODAL[lvl]}</span>${esc(call.urgency?.reason || '')}`;
+
+  const summaryWrap = document.getElementById('modalSummaryWrap');
+  const summaryEl   = document.getElementById('modalSummary');
+  if (call.summary) {
+    summaryEl.textContent = call.summary;
+    summaryWrap.classList.remove('hidden');
+  } else {
+    summaryWrap.classList.add('hidden');
+  }
+
+  const transcriptEl = document.getElementById('modalTranscript');
+  const lines = Array.isArray(call.transcript)
+    ? call.transcript.filter(t => t?.text?.trim())
+    : [];
+
+  if (lines.length > 0) {
+    transcriptEl.innerHTML = lines.map(t => `
+      <div class="flex gap-3 items-start">
+        <span class="text-xs font-black uppercase w-16 shrink-0 mt-0.5 ${t.role === 'user' ? 'text-slate-500' : 'text-emerald-400'}">${t.role === 'user' ? 'Beller' : 'Assist.'}</span>
+        <p class="text-sm text-slate-200 leading-relaxed">${esc(t.text)}</p>
+      </div>`).join('');
+  } else if (call.transcriptRaw) {
+    transcriptEl.innerHTML = `<pre class="text-sm text-slate-400 whitespace-pre-wrap font-sans">${esc(call.transcriptRaw.slice(0, 2000))}</pre>`;
+  } else {
+    transcriptEl.innerHTML = `<p class="text-slate-500 italic text-sm">Geen transcriptie beschikbaar.</p>`;
+  }
+
+  document.getElementById('callModal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  // Scroll transcript naar boven bij openen
+  setTimeout(() => { transcriptEl.scrollTop = 0; }, 50);
+}
+
+function closeModal() {
+  document.getElementById('callModal').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+// ESC-toets sluit modal
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 // ── Navigatie tussen views ────────────────────────────────────────────
 

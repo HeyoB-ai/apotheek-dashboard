@@ -1,51 +1,41 @@
 /**
- * Vapi Webhook — in-memory transcript + urgentie cache
- * Logt alle events, analyseert urgentie via Claude (NL), urgentie gaat alleen omhoog.
+ * Vapi Webhook
+ * - Slaat transcript + urgentie op in Upstash Redis (TTL 1 uur)
+ * - Claude urgentie-analyse in het Nederlands
+ * - Urgentie gaat alleen omhoog
+ * - Logt elk Vapi event volledig
  */
 
-const Anthropic = require('@anthropic-ai/sdk');
+const Anthropic   = require('@anthropic-ai/sdk');
+const { Redis }   = require('@upstash/redis');
 
-// ─── In-memory cache (persistent binnen dezelfde warme Lambda-instantie) ──────
-// Structuur: callId → { transcript[], urgency, phoneNumber, callerName, transcriptPartial, status, updatedAt }
-const CALL_CACHE   = new Map();
+const REDIS_TTL   = 3600; // 1 uur
 const URGENCY_RANK = { groen: 0, oranje: 1, rood: 2 };
 
-function getRecord(callId) {
-  if (!CALL_CACHE.has(callId)) {
-    CALL_CACHE.set(callId, {
-      transcript:        [],
-      transcriptPartial: '',
-      urgency:           { level: 'groen', reason: 'Gesprek gestart.' },
-      phoneNumber:       null,
-      callerName:        null,
-      status:            'active',
-      updatedAt:         new Date().toISOString()
-    });
-  }
-  return CALL_CACHE.get(callId);
-}
+// ─── Redis client ──────────────────────────────────────────────────────────────
 
-function setUrgency(record, newUrgency) {
-  const currentRank = URGENCY_RANK[record.urgency?.level] ?? 0;
-  const newRank     = URGENCY_RANK[newUrgency?.level]     ?? 0;
-  if (newRank > currentRank) record.urgency = newUrgency; // urgentie gaat alleen omhoog
+function getRedis() {
+  const url   = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) throw new Error('UPSTASH_REDIS_REST_URL of UPSTASH_REDIS_REST_TOKEN ontbreekt');
+  return new Redis({ url, token });
 }
 
 // ─── Keyword veiligheidsnet ───────────────────────────────────────────────────
 
 const ROOD_KW = [
   'dood','sterven','stervend','doodgaan','ga dood','ik ga dood','dacht dat ik dood',
-  'ambulance','noodgeval','spoed','spoedgeval','eerste hulp','eh spoed',
+  'ambulance','noodgeval','spoed','spoedgeval','eerste hulp',
   'anafylaxie','allergisch','allergische reactie',
   'overdosis','teveel ingenomen','te veel ingenomen',
-  'bewusteloos','flauwgevallen','valt flauw','ademnood','kan niet ademen','ademhaling stopt',
+  'bewusteloos','flauwgevallen','ademnood','kan niet ademen',
   'hartaanval','beroerte','pijn op de borst','borst pijn','help me','crisis','ziekenhuis'
 ];
 const ORANJE_KW = [
   'pijn','bijwerking','bijwerkingen','wisselwerking','dringend','urgent',
   'zo snel mogelijk','ondraaglijk','heel slecht','erg slecht','niet goed',
   'vergeten medicijn','vergeten medicatie','misselijk','overgeven',
-  'duizelig','duizeligheid','benauwdheid','benauwd','snel actie'
+  'duizelig','duizeligheid','benauwdheid','benauwd'
 ];
 
 function keywordUrgency(text) {
@@ -57,14 +47,19 @@ function keywordUrgency(text) {
   return null;
 }
 
-// ─── Claude urgentie-analyse (Nederlands) ────────────────────────────────────
+// ─── Claude urgentie-analyse (uitsluitend Nederlands) ────────────────────────
 
-async function analyzeUrgency(transcript) {
+async function analyzeUrgency(transcript, currentLevel) {
   const fullText    = transcript.map(t => t.text || '').join(' ');
   const quickResult = keywordUrgency(fullText);
 
+  // Urgentie gaat alleen omhoog
+  function best(a, b) {
+    return (URGENCY_RANK[a?.level] ?? 0) >= (URGENCY_RANK[b?.level] ?? 0) ? a : b;
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return quickResult || { level: 'groen', reason: 'AI niet geconfigureerd.' };
+  if (!apiKey) return best(quickResult, currentLevel) || { level: 'groen', reason: 'AI niet geconfigureerd.' };
 
   const gesprek = transcript
     .map(t => `${t.role === 'user' ? 'Beller' : 'Assistent'}: ${t.text}`)
@@ -76,14 +71,16 @@ async function analyzeUrgency(transcript) {
       model: 'claude-haiku-4-5-20251001', max_tokens: 120, temperature: 0,
       messages: [{
         role: 'user',
-        content: `Geef je analyse ALTIJD IN HET NEDERLANDS. Je bent urgentie-analist voor een Nederlandse apotheek.
+        content: `Je bent een Nederlandse apotheek assistent. Geef ALLE analyses, samenvattingen en urgentiebepaling uitsluitend in het Nederlands.
+
+Je bent urgentie-analist voor een Nederlandse apotheek. LEVENS REDDEN heeft prioriteit.
 
 GESPREK:
 ${gesprek}
 
-URGENTIE (wees STRENG — bij twijfel rood of oranje, NOOIT groen als iemand klachten heeft):
+URGENTIENIVEAUS (wees STRENG — bij twijfel rood of oranje, NOOIT groen als iemand klachten heeft):
 - rood   → medische nood, pijn, angst, "ik ga dood", spoed, allergie, overdosis, bewusteloos, ademnood, eerste hulp, ambulance, pijn op de borst
-- oranje → complexe vraag, onzekerheid, bijwerking, wisselwerking, dringend, misselijkheid, duizeligheid, herhaalrecept met complicatie
+- oranje → complexe vraag, onzekerheid, bijwerking, wisselwerking, dringende medicatievraag, misselijkheid, duizeligheid, herhaalrecept met complicatie
 - groen  → ALLEEN standaard routinevraag: openingstijden, prijs, eenvoudig herhaalrecept
 
 Reageer ALLEEN met JSON in het Nederlands:
@@ -96,16 +93,14 @@ Reageer ALLEEN met JSON in het Nederlands:
       const parsed = JSON.parse(match[0]);
       if (['rood','oranje','groen'].includes(parsed.level)) {
         const claudeResult = { level: parsed.level, reason: parsed.reason || '' };
-        if (!quickResult) return claudeResult;
-        return URGENCY_RANK[claudeResult.level] >= URGENCY_RANK[quickResult.level]
-          ? claudeResult : quickResult;
+        return best(best(claudeResult, quickResult), currentLevel);
       }
     }
   } catch (err) {
     console.error('[webhook] Claude mislukt:', err.message);
-    return quickResult || { level: 'oranje', reason: 'AI-analyse mislukt — voorzorgsmaatregel.' };
   }
-  return quickResult || { level: 'groen', reason: 'Geen urgente termen.' };
+
+  return best(quickResult, currentLevel) || { level: 'oranje', reason: 'AI-analyse mislukt — voorzorgsmaatregel.' };
 }
 
 // ─── Lambda handler ───────────────────────────────────────────────────────────
@@ -116,7 +111,7 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST')
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
 
-  // Log elk binnenkomend Vapi event volledig
+  // Log volledig event
   console.log('EVENT:', event.body?.slice(0, 2000));
 
   let payload;
@@ -133,61 +128,87 @@ exports.handler = async (event) => {
   if (!callId)
     return { statusCode: 200, headers, body: JSON.stringify({ status: 'genegeerd', reden: 'Geen callId' }) };
 
-  const record = getRecord(callId);
+  // Redis initialiseren
+  let redis;
+  try { redis = getRedis(); }
+  catch (err) {
+    console.error('[webhook] Redis init mislukt:', err.message);
+    // Zonder Redis toch 200 teruggeven zodat Vapi niet blijft retrying
+    return { statusCode: 200, headers, body: JSON.stringify({ status: 'ok', waarschuwing: err.message }) };
+  }
 
-  // Basisinfo bijwerken
-  const phone = call.customer?.number || call.phoneNumber || null;
-  const name  = call.customer?.name   || null;
-  if (phone) record.phoneNumber = phone;
-  if (name)  record.callerName  = name;
+  const transcriptKey = `transcript-${callId}`;
+  const urgentieKey   = `urgentie-${callId}`;
+  const metaKey       = `meta-${callId}`;
+
+  // Haal bestaande data op
+  let transcript   = (await redis.get(transcriptKey)) || [];
+  let currentUrg   = (await redis.get(urgentieKey))   || { level: 'groen', reason: 'Gesprek gestart.' };
+  let meta         = (await redis.get(metaKey))        || {};
+
+  // Telefoon + beller info
+  const phoneNumber = call.customer?.number || call.customer?.phoneNumber || call.phoneNumber || null;
+  const callerName  = call.customer?.name   || null;
+  if (phoneNumber) meta.phoneNumber = phoneNumber;
+  if (callerName)  meta.callerName  = callerName;
 
   switch (type) {
 
     case 'call.started':
     case 'call-start':
     case 'assistant-request':
-      record.status     = 'active';
-      record.transcript = [];
-      record.transcriptPartial = '';
+      transcript = [];
+      meta.status    = 'active';
+      meta.startTime = call.createdAt || new Date().toISOString();
+      await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
       break;
 
     case 'transcript': {
       const text = (msg.transcript || '').trim();
       const role = msg.role || 'user';
+
       if (msg.transcriptType === 'partial') {
-        record.transcriptPartial = text;
+        meta.transcriptPartial = text;
       } else if (msg.transcriptType === 'final' && text) {
-        record.transcript.push({ role, text, time: new Date().toISOString() });
-        record.transcriptPartial = '';
-        const urgency = await analyzeUrgency(record.transcript);
-        setUrgency(record, urgency);
-        console.log(`[webhook] transcript final (${role}): "${text.slice(0,60)}" → urgentie: ${record.urgency.level}`);
+        transcript.push({ role, text, time: new Date().toISOString() });
+        meta.transcriptPartial = '';
+        await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
+
+        const urgency = await analyzeUrgency(transcript, currentUrg);
+        currentUrg    = urgency;
+        await redis.set(urgentieKey, urgency, { ex: REDIS_TTL });
+        console.log(`[webhook] transcript (${role}): "${text.slice(0,60)}" → ${urgency.level}`);
       }
       break;
     }
 
     case 'call.ended':
     case 'end-of-call-report': {
-      record.status = 'ended';
-      record.transcriptPartial = '';
-      // Vapi stuurt volledig transcript in msg.messages
-      if (msg.messages && Array.isArray(msg.messages) && msg.messages.length > 0) {
-        record.transcript = msg.messages
+      meta.status = 'ended';
+      meta.transcriptPartial = '';
+      if (msg.messages && Array.isArray(msg.messages)) {
+        const finalLines = msg.messages
           .filter(m => (m.role === 'user' || m.role === 'bot' || m.role === 'assistant') && m.message?.trim())
           .map(m => ({ role: m.role === 'bot' ? 'assistant' : m.role, text: m.message.trim() }));
+        if (finalLines.length > 0) transcript = finalLines;
       }
-      const urgency = await analyzeUrgency(record.transcript);
-      setUrgency(record, urgency);
+      meta.summary = msg.summary || null;
+      await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
+
+      const urgency = await analyzeUrgency(transcript, currentUrg);
+      currentUrg    = urgency;
+      await redis.set(urgentieKey, urgency, { ex: REDIS_TTL });
       break;
     }
 
     case 'hang':
     case 'status-update':
       if (msg.status === 'ended' || type === 'hang') {
-        record.status = 'ended';
-        record.transcriptPartial = '';
-        const urgency = await analyzeUrgency(record.transcript);
-        setUrgency(record, urgency);
+        meta.status = 'ended';
+        meta.transcriptPartial = '';
+        const urgency = await analyzeUrgency(transcript, currentUrg);
+        currentUrg    = urgency;
+        await redis.set(urgentieKey, urgency, { ex: REDIS_TTL });
       }
       break;
 
@@ -195,10 +216,11 @@ exports.handler = async (event) => {
       console.log(`[webhook] Onbekend event: ${type}`);
   }
 
-  record.updatedAt = new Date().toISOString();
+  meta.updatedAt = new Date().toISOString();
+  await redis.set(metaKey, meta, { ex: REDIS_TTL });
 
   return {
     statusCode: 200, headers,
-    body: JSON.stringify({ status: 'ok', callId, urgency: record.urgency })
+    body: JSON.stringify({ status: 'ok', callId, urgency: currentUrg })
   };
 };

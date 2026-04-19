@@ -8,7 +8,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@netlify/blobs": "^8.1.0"
+    "@netlify/blobs": "^8.1.0",
+    "@upstash/redis": "^1.37.0"
   },
   "devDependencies": {
     "netlify-cli": "^17.0.0"
