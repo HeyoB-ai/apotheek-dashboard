@@ -132,11 +132,11 @@ tailwind.config = {
   </div>
 
   <nav class="flex-1 space-y-2">
-    <a class="flex items-center gap-4 px-4 py-3 bg-slate-800 text-primary shadow-lg rounded-xl transition-all duration-300 ease-in-out border border-slate-700/50" href="#">
+    <a class="flex items-center gap-4 px-4 py-3 bg-slate-800 text-primary shadow-lg rounded-xl transition-all duration-300 ease-in-out border border-slate-700/50 nav-link" href="#" data-view="live" onclick="switchView('live');return false;">
       <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">monitor_heart</span>
       <span class="font-medium text-sm">Live Monitor</span>
     </a>
-    <a class="flex items-center gap-4 px-4 py-3 text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all duration-300 ease-in-out rounded-xl" href="#">
+    <a class="flex items-center gap-4 px-4 py-3 text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all duration-300 ease-in-out rounded-xl nav-link" href="#" data-view="geschiedenis" onclick="switchView('geschiedenis');return false;">
       <span class="material-symbols-outlined">history</span>
       <span class="font-medium text-sm">Patiëntgeschiedenis</span>
     </a>
@@ -232,50 +232,44 @@ tailwind.config = {
 
     </section>
 
-    <!-- ── Actieve gesprekken ─────────────────────────────────────── -->
-    <section>
+    <!-- ── Live Monitor view ─────────────────────────────────────── -->
+    <div id="viewLive">
       <div class="flex items-end justify-between mb-6">
         <div>
           <h2 class="text-2xl font-bold tracking-tight text-white">Actieve Gesprekken</h2>
-          <p class="text-slate-400 text-sm">Real-time patiënt interacties en AI-geassisteerde urgentie-analyse</p>
+          <p class="text-slate-400 text-sm">Real-time patiënt interacties en AI urgentie-analyse</p>
         </div>
         <span class="bg-slate-800 border border-slate-700 text-primary font-bold text-sm px-4 py-2 rounded-full" id="pilActief">0</span>
       </div>
-
-      <!-- Grid voor actieve gesprekskaarten — gevuld door JS -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" id="activeGrid">
-        <div class="empty-state col-span-full text-center py-16 text-slate-500">
+      <!-- Full-width stapel voor actieve gesprekskaarten -->
+      <div class="flex flex-col gap-4" id="activeGrid">
+        <div class="empty-state text-center py-16 text-slate-500">
           <span class="material-symbols-outlined text-6xl block mb-3 opacity-20">phone_disabled</span>
           <p class="font-semibold text-slate-400">Geen actieve gesprekken</p>
           <p class="text-sm mt-1">Inkomende Vapi-gesprekken verschijnen hier automatisch</p>
         </div>
       </div>
-    </section>
+    </div>
 
-    <!-- ── Recente geschiedenis (tabel) ─────────────────────────── -->
-    <section class="bg-slate-800/40 rounded-[2.5rem] p-8 border border-slate-700/50">
+    <!-- ── Patiëntgeschiedenis view (verborgen standaard) ─────────── -->
+    <div id="viewGeschiedenis" class="hidden">
       <div class="flex items-center justify-between mb-8">
         <div>
-          <h2 class="text-xl font-bold tracking-tight text-white">Recente Geschiedenis</h2>
+          <h2 class="text-2xl font-bold tracking-tight text-white">Patiëntgeschiedenis</h2>
           <p class="text-slate-400 text-sm mt-1">
             Beëindigde gesprekken —
             <span id="pilRecent" class="font-bold text-white">0</span> opgeslagen
           </p>
         </div>
-        <div class="flex gap-2">
-          <button class="px-4 py-2 bg-slate-700 text-white rounded-full text-xs font-bold shadow-sm border border-slate-600">Vandaag</button>
-          <button class="px-4 py-2 text-slate-400 text-xs font-bold hover:text-white transition-colors">Laatste 7 dagen</button>
-        </div>
       </div>
-
-      <div class="overflow-x-auto">
+      <div class="bg-slate-800/40 rounded-[2.5rem] p-8 border border-slate-700/50 overflow-x-auto">
         <table class="w-full text-left border-separate border-spacing-y-3">
           <thead>
             <tr class="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em]">
               <th class="px-6 pb-2">Tijd</th>
-              <th class="px-6 pb-2">Beller &amp; AI-analyse</th>
+              <th class="px-6 pb-2">Beller &amp; Samenvatting</th>
               <th class="px-6 pb-2">Duur</th>
-              <th class="px-6 pb-2 text-right">Status</th>
+              <th class="px-6 pb-2 text-right">Urgentie</th>
             </tr>
           </thead>
           <tbody id="recentTbody">
@@ -288,7 +282,7 @@ tailwind.config = {
           </tbody>
         </table>
       </div>
-    </section>
+    </div>
 
   </div>
 
@@ -401,114 +395,108 @@ function fmtTel(num) {
 
 // ── Kaart HTML opbouwen ───────────────────────────────────────────────
 
+const URGENCY_BAR  = { rood: 'bg-red-600',    oranje: 'bg-orange-500', groen: 'bg-emerald-500' };
+const URGENCY_BADGE = {
+  rood:   'bg-red-600/20 text-red-400 border-red-600/40',
+  oranje: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+  groen:  'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+};
+const URGENCY_LABEL = {
+  rood:   'URGENT — Nu actie vereist',
+  oranje: 'AANDACHT — Binnenkort actie',
+  groen:  'NORMAAL — Geen urgentie'
+};
+
 function buildCard(call) {
-  const lvl    = (call.urgency?.level in CARD_CFG) ? call.urgency.level : 'groen';
-  const cfg    = CARD_CFG[lvl];
-  const live   = call.status === 'active';
+  const lvl  = (call.urgency?.level in CARD_CFG) ? call.urgency.level : 'groen';
+  const cfg  = CARD_CFG[lvl];
+  const live = call.status === 'active';
+
+  // Urgentiereden
   const reason = call.urgency?.reason || 'Urgentie-analyse in verwerking…';
 
-  // Transcript: live = alle regels groot, afgelopen = laatste 4 regels compact
-  let transcriptHtml;
+  // Telefoonnummer prominent als naam ontbreekt
+  const displayPhone = (call.phoneNumber && call.phoneNumber !== 'Onbekend')
+    ? fmtTel(call.phoneNumber) : 'Onbekend nummer';
+  const displayName  = (call.callerName && call.callerName !== 'Onbekende beller')
+    ? call.callerName : displayPhone;
+
+  // Transcript
   const finishedLines = Array.isArray(call.transcript)
     ? call.transcript.filter(t => t && typeof t.text === 'string' && t.text.trim())
     : [];
   const hasFinished = finishedLines.length > 0;
-  const hasPartial  = live && call.transcriptPartial && call.transcriptPartial.trim();
+  const hasPartial  = live && call.transcriptPartial?.trim();
+  const transcriptId = `ts-${call.id.replace(/[^a-z0-9]/gi,'_')}`;
 
+  let transcriptHtml;
   if (hasFinished || hasPartial) {
-    const displayLines = live ? finishedLines : finishedLines.slice(-4);
-    const textSize     = live ? 'text-base leading-relaxed' : 'text-xs leading-relaxed';
-    const maxH         = live ? 'max-h-64' : 'max-h-32';
-    const rows = displayLines.map(t => `
-          <div class="flex gap-3 items-start">
-            <span class="text-[10px] font-bold uppercase ${t.role === 'user' ? 'text-slate-500' : 'text-primary'} mt-1 w-16 shrink-0">
-              ${t.role === 'user' ? 'Beller' : 'Assist.'}
-            </span>
-            <p class="${textSize} text-slate-200">${esc(t.text)}</p>
-          </div>`).join('');
+    const rows = finishedLines.map(t => `
+      <div class="flex gap-3 items-start py-1">
+        <span class="text-xs font-black uppercase w-16 shrink-0 mt-0.5 ${t.role === 'user' ? 'text-slate-500' : 'text-emerald-400'}">${t.role === 'user' ? 'Beller' : 'Assist.'}</span>
+        <p class="text-base text-slate-100 leading-snug">${esc(t.text)}</p>
+      </div>`).join('');
     const partialRow = hasPartial ? `
-          <div class="flex gap-3 items-start opacity-70">
-            <span class="text-[10px] font-bold uppercase text-amber-400 mt-1 w-16 shrink-0">Live…</span>
-            <p class="${textSize} text-slate-300 italic">${esc(call.transcriptPartial)}</p>
-          </div>` : '';
+      <div class="flex gap-3 items-start py-1 opacity-60">
+        <span class="text-xs font-black uppercase w-16 shrink-0 mt-0.5 text-amber-400">Live…</span>
+        <p class="text-base text-slate-300 italic">${esc(call.transcriptPartial)}</p>
+      </div>` : '';
     transcriptHtml = `
-      <div class="transcript-scroll bg-slate-950/60 rounded-2xl p-4 space-y-3 ${maxH} overflow-y-auto">
+      <div class="transcript-scroll bg-black/30 rounded-2xl p-4 space-y-1 overflow-y-auto" style="max-height:260px" id="${transcriptId}">
         ${rows}${partialRow}
       </div>`;
   } else if (call.transcriptRaw) {
     transcriptHtml = `
-      <div class="transcript-scroll bg-slate-950/60 rounded-2xl p-4 max-h-32 overflow-y-auto">
-        <pre class="text-sm text-slate-400 whitespace-pre-wrap font-sans leading-relaxed">${esc(call.transcriptRaw.slice(0,400))}</pre>
+      <div class="transcript-scroll bg-black/30 rounded-2xl p-4 overflow-y-auto" style="max-height:200px">
+        <pre class="text-sm text-slate-400 whitespace-pre-wrap font-sans leading-relaxed">${esc(call.transcriptRaw.slice(0,500))}</pre>
       </div>`;
   } else {
-    transcriptHtml = `<p class="text-sm text-slate-500 italic py-2">Wachten op transcriptie…</p>`;
+    transcriptHtml = `<p class="text-sm text-slate-500 italic py-3">Wachten op transcriptie…</p>`;
   }
 
-  // Toon telefoonnummer als primaire naam als callerName onbekend is
-  const displayName = (call.callerName && call.callerName !== 'Onbekende beller')
-    ? call.callerName
-    : (call.phoneNumber && call.phoneNumber !== 'Onbekend' ? fmtTel(call.phoneNumber) : 'Onbekende beller');
-
   const card = document.createElement('div');
-  card.className = live
-    ? 'call-card group bg-slate-800/60 p-1 rounded-[2.5rem] transition-all duration-300 border-2 border-primary/40 shadow-xl shadow-primary/10'
-    : 'call-card group bg-slate-800/40 p-1 rounded-[2.5rem] transition-all duration-300 hover:bg-slate-800/60 border border-slate-700/50 hover:border-slate-600';
+  card.className = 'call-card w-full overflow-hidden rounded-3xl transition-all duration-300 ' +
+    (live
+      ? 'bg-slate-800/70 border-2 border-primary/30 shadow-2xl shadow-black/40'
+      : 'bg-slate-800/40 border border-slate-700/50 hover:bg-slate-800/60');
   card.dataset.id          = call.id;
   card.dataset.lastUpdated = call.lastUpdated;
 
   card.innerHTML = `
-    <div class="p-6 rounded-[2.25rem] h-full flex flex-col ${live ? 'min-h-[320px]' : ''}">
+    <!-- Urgentiebalk bovenaan (8px) -->
+    <div class="h-2 w-full ${URGENCY_BAR[lvl]}"></div>
 
-      <!-- Kaartkop: beller + badge -->
-      <div class="flex justify-between items-start mb-5">
-        <div class="flex items-center gap-3">
-          <div class="${live ? 'w-14 h-14' : 'w-10 h-10'} rounded-full ${cfg.iconBg} flex items-center justify-center text-white shrink-0">
-            <span class="material-symbols-outlined ${live ? 'text-2xl' : 'text-xl'}">${cfg.icon}</span>
-          </div>
-          <div>
-            <h3 class="${live ? 'font-black text-xl' : 'font-bold text-sm'} text-slate-100">${esc(displayName)}</h3>
-            <p class="${live ? 'text-sm' : 'text-[10px]'} ${cfg.timeColor} font-bold uppercase tracking-tighter">
-              ${timeSince(call.startTime)}${live && call.phoneNumber && call.phoneNumber !== 'Onbekend' ? ' · ' + esc(fmtTel(call.phoneNumber)) : ''}
-            </p>
-          </div>
+    <div class="p-6 flex flex-col gap-4">
+
+      <!-- Regel 1: Telefoonnummer links, LIVE/tijd rechts -->
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <p class="text-2xl font-black text-white tracking-tight">${esc(displayPhone)}</p>
+          ${displayName !== displayPhone
+            ? `<p class="text-sm text-slate-400 mt-0.5">${esc(displayName)}</p>` : ''}
+          <p class="text-xs text-slate-500 mt-1">
+            <span class="duration-live" data-start="${esc(call.startTime)}">${fmtDuur(call.startTime, live ? null : call.endTime)}</span>
+            · ${timeSince(call.startTime)}
+          </p>
         </div>
-        <span class="${live ? 'bg-primary/20 text-primary border-primary/40 px-4 py-2 text-sm animate-pulse' : 'bg-white/10 text-white border-white/20 px-3 py-1 text-xs'} backdrop-blur-md rounded-full font-bold uppercase tracking-widest border shrink-0">
-          ${live ? '● Live' : fmtTime(call.endTime)}
+        <span class="shrink-0 px-4 py-2 rounded-full text-sm font-black uppercase border tracking-wide ${live
+          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 animate-pulse'
+          : 'bg-slate-700/50 text-slate-400 border-slate-600/30 text-xs'}">
+          ${live ? '● LIVE' : fmtTime(call.endTime)}
         </span>
       </div>
 
-      <div class="space-y-3 flex-1">
-
-        <!-- AI urgentie-analyse box -->
-        <div class="bg-slate-900/80 p-4 rounded-2xl border-l-4 ${cfg.borderColor}">
-          <p class="text-xs font-bold text-slate-400 mb-1">AI URGENTIE-ANALYSE</p>
-          <p class="text-sm leading-relaxed text-slate-200">${esc(reason)}</p>
+      <!-- Urgentiebadge -->
+      <div class="flex items-center gap-3 px-4 py-3 rounded-2xl border ${URGENCY_BADGE[lvl]}">
+        <span class="material-symbols-outlined text-lg">${cfg.icon}</span>
+        <div>
+          <p class="text-xs font-black uppercase tracking-widest opacity-70">${URGENCY_LABEL[lvl]}</p>
+          <p class="text-sm mt-0.5">${esc(reason)}</p>
         </div>
-
-        <!-- Transcript fragment -->
-        ${transcriptHtml}
-
-        <!-- Chips: urgentie, telefoon, duur -->
-        <div class="flex gap-2 flex-wrap">
-          <span class="px-3 py-1 ${cfg.chipBg} text-[10px] font-bold rounded-full border">${cfg.chipLabel}</span>
-          ${call.phoneNumber && call.phoneNumber !== 'Onbekend'
-            ? `<span class="px-3 py-1 bg-slate-700/50 text-slate-300 text-[10px] font-bold rounded-full border border-slate-600/30">
-                 ${esc(fmtTel(call.phoneNumber))}
-               </span>`
-            : ''}
-          <span class="px-3 py-1 bg-slate-700/50 text-slate-300 text-[10px] font-bold rounded-full border border-slate-600/30">
-            ${live
-              ? `<span class="duration-live" data-start="${esc(call.startTime)}">${fmtDuur(call.startTime)}</span>`
-              : fmtDuur(call.startTime, call.endTime)}
-          </span>
-        </div>
-
       </div>
 
-      <!-- Actieknop -->
-      <button class="mt-5 w-full py-3 ${cfg.btnBg} text-white font-bold rounded-xl text-sm transition-colors">
-        ${cfg.btnLabel}
-      </button>
+      <!-- Transcriptie -->
+      ${transcriptHtml}
 
     </div>
   `;
@@ -616,6 +604,28 @@ function updateRecentTable(calls) {
   }).join('');
 }
 
+// ── Navigatie tussen views ────────────────────────────────────────────
+
+function switchView(view) {
+  document.getElementById('viewLive').classList.toggle('hidden', view !== 'live');
+  document.getElementById('viewGeschiedenis').classList.toggle('hidden', view !== 'geschiedenis');
+
+  document.querySelectorAll('.nav-link').forEach(el => {
+    const isActive = el.dataset.view === view;
+    el.className = isActive
+      ? 'flex items-center gap-4 px-4 py-3 bg-slate-800 text-primary shadow-lg rounded-xl transition-all duration-300 ease-in-out border border-slate-700/50 nav-link'
+      : 'flex items-center gap-4 px-4 py-3 text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all duration-300 ease-in-out rounded-xl nav-link';
+  });
+}
+
+// ── Transcript auto-scroll naar beneden ──────────────────────────────
+
+function autoScrollTranscripts() {
+  document.querySelectorAll('.transcript-scroll').forEach(el => {
+    el.scrollTop = el.scrollHeight;
+  });
+}
+
 // ── Live duraties bijwerken (elke seconde) ────────────────────────────
 
 function tickDurations() {
@@ -696,6 +706,7 @@ async function poll() {
       'Inkomende Vapi-gesprekken verschijnen hier automatisch'
     );
     updateRecentTable(recent);
+    autoScrollTranscripts();
 
     document.getElementById('lastRefresh').textContent =
       'Bijgewerkt: ' + new Date().toLocaleTimeString('nl-NL');
