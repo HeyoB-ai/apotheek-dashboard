@@ -1,40 +1,34 @@
 /**
  * Vapi.ai Webhook Handler
- * Verwerkt call.started, transcript (partial+final), call.ended en legacy events.
- * Slaat elk event direct op in Netlify Blobs zodat het dashboard live kan pollen.
+ * Analyseert urgentie via Claude en slaat het resultaat op in Netlify Blobs.
+ * Transcriptie en call-data komen direct van de Vapi API (via calls.js).
  */
 
-const Anthropic = require('@anthropic-ai/sdk');
+const Anthropic  = require('@anthropic-ai/sdk');
 const { getStore } = require('@netlify/blobs');
-const crypto = require('crypto');
 
-const STORE_NAME = 'apotheek-calls';
+const STORE_NAME = 'apotheek-urgency';
 
-// ─── Blobs store met expliciete credentials als omgeving ze niet auto-injecteert ──
+// ─── Blobs store (best-effort) ────────────────────────────────────────────────
 
 function getStoreWithContext() {
   const siteID = process.env.NETLIFY_SITE_ID;
-  const token = process.env.NETLIFY_AUTH_TOKEN || process.env.NETLIFY_TOKEN;
-  if (siteID && token) {
-    return getStore({ name: STORE_NAME, siteID, token });
-  }
+  const token  = process.env.NETLIFY_AUTH_TOKEN || process.env.NETLIFY_TOKEN;
+  if (siteID && token) return getStore({ name: STORE_NAME, siteID, token });
   return getStore(STORE_NAME);
 }
 
-// ─── Keyword veiligheidsnet (werkt ook zonder Claude) ────────────────────────
+// ─── Keyword veiligheidsnet ───────────────────────────────────────────────────
 
 const ROOD_KEYWORDS = [
-  'dood', 'sterven', 'stervend', 'doodgaan', 'ga dood', 'ga dood gaan',
-  'ambulance', 'noodgeval', 'spoed', 'spoedgeval', 'eerste hulp', 'eh ',
+  'dood', 'sterven', 'stervend', 'doodgaan', 'ga dood',
+  'ambulance', 'noodgeval', 'spoed', 'spoedgeval', 'eerste hulp',
   'anafylaxie', 'allergisch', 'allergische reactie',
   'overdosis', 'teveel ingenomen', 'te veel ingenomen',
-  'bewusteloos', 'flauwgevallen', 'valt flauw',
-  'ademnood', 'kan niet ademen', 'ademhaling',
+  'bewusteloos', 'flauwgevallen', 'ademnood', 'kan niet ademen',
   'hartaanval', 'beroerte', 'pijn op de borst', 'borst pijn',
-  'help', 'help me', 'ik ga dood', 'dacht dat ik dood',
-  'ziekenhuis', 'crisis'
+  'ik ga dood', 'dacht dat ik dood', 'ziekenhuis', 'crisis', 'help me'
 ];
-
 const ORANJE_KEYWORDS = [
   'pijn', 'bijwerking', 'bijwerkingen', 'wisselwerking',
   'dringend', 'urgent', 'snel', 'zo snel mogelijk',
@@ -43,134 +37,96 @@ const ORANJE_KEYWORDS = [
   'duizelig', 'duizeligheid', 'benauwdheid', 'benauwd'
 ];
 
-function keywordUrgencyCheck(transcript) {
-  const text = transcript.map(t => t.text || '').join(' ').toLowerCase();
-  if (ROOD_KEYWORDS.some(kw => text.includes(kw))) {
-    return { level: 'rood', reason: 'Noodtermen gedetecteerd — directe actie vereist.' };
-  }
-  if (ORANJE_KEYWORDS.some(kw => text.includes(kw))) {
+function keywordUrgency(text) {
+  const t = (text || '').toLowerCase();
+  if (ROOD_KEYWORDS.some(kw => t.includes(kw)))
+    return { level: 'rood',   reason: 'Noodtermen gedetecteerd — directe actie vereist.' };
+  if (ORANJE_KEYWORDS.some(kw => t.includes(kw)))
     return { level: 'oranje', reason: 'Urgente termen gedetecteerd — binnenkort actie vereist.' };
-  }
   return null;
 }
 
-// ─── Urgentie-analyse met Claude ─────────────────────────────────────────────
+// ─── Claude urgentie-analyse ──────────────────────────────────────────────────
 
-async function analyzeUrgency(transcript) {
-  if (!transcript || transcript.length === 0) {
-    return { level: 'groen', reason: 'Gesprek net gestart, nog geen transcript.' };
+async function analyzeUrgency(transcriptLines) {
+  if (!transcriptLines || transcriptLines.length === 0) {
+    return { level: 'groen', reason: 'Geen transcriptie beschikbaar.' };
   }
 
-  // Keyword pre-check als veiligheidsnet — werkt ook als Claude uitvalt
-  const quickResult = keywordUrgencyCheck(transcript);
+  const fullText = transcriptLines.map(t => t.text || t.message || '').join(' ');
+  const quickResult = keywordUrgency(fullText);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    console.warn('[webhook] ANTHROPIC_API_KEY niet aanwezig — gebruik keyword check');
-    return quickResult || { level: 'groen', reason: 'AI-analyse niet beschikbaar.' };
+    console.warn('[webhook] ANTHROPIC_API_KEY niet aanwezig');
+    return quickResult || { level: 'groen', reason: 'AI-analyse niet geconfigureerd.' };
   }
 
-  const client = new Anthropic({ apiKey });
-
-  const conversationText = transcript
-    .map(t => `${t.role === 'user' ? 'Beller' : 'Assistent'}: ${t.text}`)
+  const conversationText = transcriptLines
+    .map(t => {
+      const role = t.role === 'user' ? 'Beller' : 'Assistent';
+      const text = t.text || t.message || '';
+      return `${role}: ${text}`;
+    })
     .join('\n');
 
   try {
+    const client  = new Anthropic({ apiKey });
     const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model:      'claude-haiku-4-5-20251001',
       max_tokens: 150,
       temperature: 0,
-      messages: [
-        {
-          role: 'user',
-          content: `Je bent een urgentie-analist voor een Nederlandse apotheek. Je taak is LEVENS REDDEN. Analyseer dit gesprek en bepaal urgentieniveau.
+      messages: [{
+        role: 'user',
+        content: `Je bent een urgentie-analist voor een Nederlandse apotheek. Je taak is LEVENS REDDEN. Analyseer dit gesprek.
 
 GESPREK:
 ${conversationText}
 
-URGENTIENIVEAUS — WEES STRENG, NIET MILD:
-- rood   → Bij ENIGE twijfel over gevaar: pijn, angst, "dood", spoed, noodgeval, allergie, overdosis, bewusteloos, ademnood, "eerste hulp", "ambulance", "ziekenhuis", "ik voel me slecht", "ik ga dood"
-- oranje → Dringend maar niet direct levensbedreigend: bijwerking, wisselwerking, dringende medicatievraag, onduidelijke dosering, misselijkheid, duizeligheid
-- groen  → ALLEEN bij 100% zeker routinevraag: herhaalrecept, openingstijden, prijs. Bij twijfel: NIET groen.
-
-REGEL: Bij enige medische zorg of ongemak → rood of oranje. Nooit groen als iemand zich slecht voelt.
+URGENTIENIVEAUS — WEES STRENG:
+- rood   → Bij ENIGE twijfel over gevaar: pijn, angst, "dood", spoed, noodgeval, allergie, overdosis, bewusteloos, ademnood, "eerste hulp", "ambulance", "ik voel me slecht", "ik ga dood"
+- oranje → Dringend maar niet direct levensbedreigend: bijwerking, wisselwerking, dringende medicatievraag, misselijkheid, duizeligheid
+- groen  → ALLEEN bij 100% zeker routinevraag: herhaalrecept, openingstijden, prijs. Bij twijfel: NOOIT groen.
 
 Reageer UITSLUITEND met geldig JSON:
 {"level":"groen","reason":"max 80 tekens"}`
-        }
-      ]
+      }]
     });
 
-    const text = message.content[0].text.trim();
+    const text      = message.content[0].text.trim();
     const jsonMatch = text.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (['rood', 'oranje', 'groen'].includes(parsed.level)) {
-        // Neem het strengste resultaat van Claude én keyword check
         const claudeResult = { level: parsed.level, reason: parsed.reason || '' };
         if (!quickResult) return claudeResult;
         const priority = { rood: 2, oranje: 1, groen: 0 };
-        return priority[claudeResult.level] >= priority[quickResult.level] ? claudeResult : quickResult;
+        return priority[claudeResult.level] >= priority[quickResult.level]
+          ? claudeResult : quickResult;
       }
     }
   } catch (err) {
-    console.error('[webhook] Claude urgentie-analyse mislukt:', err.message);
-    console.error('[webhook] Model:', 'claude-haiku-4-5-20251001', '| API key aanwezig:', !!apiKey);
-    // Fallback naar keyword check
-    return quickResult || { level: 'oranje', reason: 'AI-analyse mislukt — voorzorgsmaatregel oranje.' };
+    console.error('[webhook] Claude mislukt:', err.message);
+    return quickResult || { level: 'oranje', reason: 'AI-analyse mislukt — voorzorgsmaatregel.' };
   }
 
   return quickResult || { level: 'groen', reason: 'Geen urgente termen gevonden.' };
 }
 
-// ─── Handtekening verificatie ─────────────────────────────────────────────────
+// ─── Transcript extraheren uit Vapi payload ───────────────────────────────────
 
-function verifySignature(body, signature, secret) {
-  try {
-    const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
-    const cleaned = signature.replace(/^sha256=/, '');
-    const expectedBuf = Buffer.from(expected, 'hex');
-    const sigBuf = Buffer.from(cleaned, 'hex');
-    if (expectedBuf.length !== sigBuf.length) return false;
-    return crypto.timingSafeEqual(expectedBuf, sigBuf);
-  } catch {
-    return false;
+function extractTranscript(msg) {
+  // Realtime fragment
+  if (msg.type === 'transcript' && msg.transcriptType === 'final' && msg.transcript) {
+    return [{ role: msg.role || 'user', text: msg.transcript }];
   }
-}
-
-// ─── Berichten normaliseren (end-of-call-report formaat) ─────────────────────
-
-function parseMessages(messages) {
-  if (!Array.isArray(messages)) return [];
-  return messages
-    .filter(m => m.role === 'user' || m.role === 'assistant')
-    .map(m => ({
-      role: m.role,
-      text: (m.message || m.text || '').trim(),
-      time: typeof m.time === 'number' ? m.time : null
-    }))
-    .filter(m => m.text.length > 0);
-}
-
-// ─── Nieuw gesprek-record aanmaken ────────────────────────────────────────────
-
-function createRecord(callId, call) {
-  return {
-    id: callId,
-    startTime: call.createdAt || call.startedAt || new Date().toISOString(),
-    endTime: null,
-    status: 'active',
-    phoneNumber: call.customer?.number || call.phoneNumber || 'Onbekend',
-    callerName: call.customer?.name || 'Onbekende beller',
-    transcript: [],          // definitieve fragmenten
-    transcriptPartial: '',   // huidig partieel fragment (live weergave)
-    transcriptRaw: null,
-    urgency: { level: 'groen', reason: 'Gesprek gestart.' },
-    summary: null,
-    recordingUrl: null,
-    lastUpdated: new Date().toISOString()
-  };
+  // End-of-call messages
+  if (msg.messages && Array.isArray(msg.messages)) {
+    return msg.messages
+      .filter(m => (m.role === 'user' || m.role === 'bot' || m.role === 'assistant') && m.message?.trim())
+      .map(m => ({ role: m.role, text: m.message.trim() }));
+  }
+  return [];
 }
 
 // ─── Lambda handler ───────────────────────────────────────────────────────────
@@ -178,11 +134,8 @@ function createRecord(callId, call) {
 exports.handler = async (event) => {
   const headers = { 'Content-Type': 'application/json' };
 
-  if (event.httpMethod !== 'POST') {
+  if (event.httpMethod !== 'POST')
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
-  }
-
-  // Signature verificatie tijdelijk uitgeschakeld voor debugging
 
   let payload;
   try {
@@ -191,141 +144,45 @@ exports.handler = async (event) => {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Ongeldige JSON' }) };
   }
 
-  // Vapi stuurt events in payload.message (of soms direct in payload)
-  const msg = payload.message || payload;
-  const type = msg.type;
-  const call = msg.call || {};
+  const msg    = payload.message || payload;
+  const type   = msg.type;
+  const call   = msg.call || {};
   const callId = call.id || msg.callId;
 
   console.log(`[webhook] event=${type} callId=${callId}`);
 
   if (!callId) {
-    console.warn('[webhook] Geen call-ID gevonden, payload:', JSON.stringify(payload).slice(0, 200));
-    return { statusCode: 200, headers, body: JSON.stringify({ status: 'genegeerd', reden: 'Geen call-ID' }) };
+    console.warn('[webhook] Geen call-ID, payload:', JSON.stringify(payload).slice(0, 200));
+    return { statusCode: 200, headers, body: JSON.stringify({ status: 'genegeerd' }) };
   }
 
-  let store;
+  // Verwerk alleen events die transcriptie bevatten
+  const shouldAnalyze = [
+    'transcript', 'call.ended', 'end-of-call-report', 'hang'
+  ].includes(type);
+
+  if (!shouldAnalyze) {
+    console.log(`[webhook] Event ${type} genegeerd (geen transcriptie)`);
+    return { statusCode: 200, headers, body: JSON.stringify({ status: 'ok', callId }) };
+  }
+
+  const transcriptLines = extractTranscript(msg);
+
+  // Analyseer urgentie
+  const urgency = await analyzeUrgency(transcriptLines);
+  console.log(`[webhook] ${type} | ${callId} | urgentie=${urgency.level}`);
+
+  // Sla urgentie op in Blobs (best-effort — faalt stil als Blobs niet beschikbaar is)
   try {
-    store = getStoreWithContext();
+    const store = getStoreWithContext();
+    await store.set(callId, JSON.stringify({ urgency, analyzedAt: new Date().toISOString() }));
   } catch (err) {
-    console.error('[webhook] Blobs store init mislukt:', err.message);
-    return { statusCode: 200, headers, body: JSON.stringify({ status: 'ok', waarschuwing: 'Blobs niet beschikbaar' }) };
+    console.warn('[webhook] Blobs opslaan mislukt (niet kritiek):', err.message);
   }
-
-  // Laad bestaand gesprek of maak nieuw aan
-  let record;
-  try {
-    record = await store.get(callId, { type: 'json' });
-  } catch {
-    record = null;
-  }
-
-  if (!record) {
-    record = createRecord(callId, call);
-  }
-
-  let needsUrgencyUpdate = false;
-
-  switch (type) {
-
-    // ── Gesprek gestart (dot-notatie + legacy) ────────────────────────────────
-    case 'call.started':
-    case 'call-start':
-    case 'assistant-request': {
-      record.status = 'active';
-      record.startTime = call.createdAt || call.startedAt || record.startTime;
-      record.phoneNumber = call.customer?.number || record.phoneNumber;
-      record.callerName = call.customer?.name || record.callerName;
-      console.log(`[webhook] Gesprek gestart: ${callId}`);
-      break;
-    }
-
-    // ── Live transcriptie ─────────────────────────────────────────────────────
-    case 'transcript': {
-      const text = (msg.transcript || '').trim();
-      const role = msg.role || 'user';
-
-      if (msg.transcriptType === 'partial') {
-        // Partieel: toon live maar sla nog niet permanent op
-        record.transcriptPartial = text;
-      } else if (msg.transcriptType === 'final' && text) {
-        // Definitief: voeg toe aan transcript en reset partieel
-        record.transcript.push({
-          role,
-          text,
-          time: new Date().toISOString()
-        });
-        record.transcriptPartial = '';
-        needsUrgencyUpdate = true;
-        console.log(`[webhook] Transcript final (${role}): ${text.slice(0, 60)}`);
-      }
-      break;
-    }
-
-    // ── Gesprek beëindigd (dot-notatie + legacy) ──────────────────────────────
-    case 'call.ended':
-    case 'end-of-call-report': {
-      record.status = 'ended';
-      record.endTime = new Date().toISOString();
-      record.transcriptPartial = '';
-      record.summary = msg.summary || null;
-      record.recordingUrl = msg.recordingUrl || null;
-
-      // Volledig transcript van Vapi heeft prioriteit over live-opgebouwde versie
-      if (msg.messages && Array.isArray(msg.messages) && msg.messages.length > 0) {
-        record.transcript = parseMessages(msg.messages);
-      } else if (typeof msg.transcript === 'string' && msg.transcript.trim()) {
-        record.transcriptRaw = msg.transcript;
-      }
-
-      needsUrgencyUpdate = true;
-      console.log(`[webhook] Gesprek beëindigd: ${callId}, ${record.transcript.length} fragmenten`);
-      break;
-    }
-
-    // ── Gesprek opgehangen ────────────────────────────────────────────────────
-    case 'hang': {
-      record.status = 'ended';
-      record.endTime = record.endTime || new Date().toISOString();
-      record.transcriptPartial = '';
-      if (record.transcript.length > 0) needsUrgencyUpdate = true;
-      break;
-    }
-
-    // ── Statuswijziging ───────────────────────────────────────────────────────
-    case 'status-update': {
-      if (msg.status === 'ended') {
-        record.status = 'ended';
-        record.endTime = record.endTime || new Date().toISOString();
-        record.transcriptPartial = '';
-        if (record.transcript.length > 0) needsUrgencyUpdate = true;
-      }
-      break;
-    }
-
-    default:
-      console.log(`[webhook] Onbekend event type: ${type}`);
-      break;
-  }
-
-  // Urgentie via Claude — alleen bij nieuwe definitieve transcriptdata
-  if (needsUrgencyUpdate && record.transcript.length > 0) {
-    record.urgency = await analyzeUrgency(record.transcript);
-  }
-
-  record.lastUpdated = new Date().toISOString();
-
-  try {
-    await store.set(callId, JSON.stringify(record));
-  } catch (err) {
-    console.error('[webhook] Opslaan mislukt:', err.message);
-  }
-
-  console.log(`[webhook] Opgeslagen | ${type} | ${callId} | urgentie=${record.urgency.level}`);
 
   return {
     statusCode: 200,
     headers,
-    body: JSON.stringify({ status: 'ok', callId, urgency: record.urgency })
+    body: JSON.stringify({ status: 'ok', callId, urgency })
   };
 };
