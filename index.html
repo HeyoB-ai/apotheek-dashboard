@@ -238,7 +238,7 @@ tailwind.config = {
         <div class="empty-state text-center py-16 text-slate-500">
           <span class="material-symbols-outlined text-6xl block mb-3 opacity-20">phone_disabled</span>
           <p class="font-semibold text-slate-400">Geen actieve gesprekken</p>
-          <p class="text-sm mt-1">Inkomende Vapi-gesprekken verschijnen hier automatisch</p>
+          <p class="text-sm mt-1">Inkomende gesprekken verschijnen hier automatisch</p>
         </div>
       </div>
     </div>
@@ -817,7 +817,7 @@ async function poll() {
     updateGrid(
       'activeGrid', active,
       'phone_disabled', 'Geen actieve gesprekken',
-      'Inkomende Vapi-gesprekken verschijnen hier automatisch'
+      'Inkomende gesprekken verschijnen hier automatisch'
     );
     updateRecentTable(recent);
     autoScrollTranscripts();
