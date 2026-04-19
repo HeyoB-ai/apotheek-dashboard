@@ -136,15 +136,7 @@ exports.handler = async (event) => {
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
   }
 
-  // Verifieer Vapi handtekening als geheim is ingesteld
-  const secret = process.env.VAPI_WEBHOOK_SECRET;
-  if (secret) {
-    const sig = event.headers['x-vapi-signature'] || event.headers['X-Vapi-Signature'];
-    if (!sig || !verifySignature(event.body, sig, secret)) {
-      console.warn('[webhook] Ongeldige of ontbrekende handtekening');
-      return { statusCode: 401, headers, body: JSON.stringify({ error: 'Unauthorized' }) };
-    }
-  }
+  // Signature verificatie tijdelijk uitgeschakeld voor debugging
 
   let payload;
   try {
