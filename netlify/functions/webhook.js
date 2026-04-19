@@ -272,10 +272,9 @@ exports.handler = async (event) => {
           transcript = lines;
           await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
 
-          // Claude urgentie + beller-profiel analyse
-          const gesprek = lines
-            .map(l => `${l.role === 'user' ? 'Beller' : 'Assistent'}: ${l.text}`)
-            .join('\n');
+          // Claude urgentie + beller-profiel analyse — ALLEEN op beller-berichten
+          const bellerRegels = lines.filter(l => l.role === 'user');
+          const gesprek = bellerRegels.map(l => l.text).join('\n');
 
           let newUrg = currentUrg;
           const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -300,9 +299,9 @@ Bepaal:
 - Geslacht: MAN, VROUW of ONBEKEND
 - Leeftijd: KIND (onder 16), VOLWASSENE, SENIOR (boven 65) of ONBEKEND
 
-Baseer dit op taalgebruik, stemgebruik beschrijvingen in de transcriptie en context.
+Baseer dit op taalgebruik en woordkeuze van de beller.
 
-Gesprek:
+Beller-berichten (alleen de beller, niet de assistent):
 ${gesprek}
 
 Antwoord uitsluitend met JSON (geen uitleg):

@@ -175,8 +175,8 @@ exports.handler = async (event) => {
       : (meta.callerName || 'Onbekende beller');
 
     const transcriptPartial = isActive ? (meta.transcriptPartial || '') : '';
-    // summaryNl (door Claude gegenereerd) heeft prioriteit over Vapi's Engelse summary
     const summary = meta.summaryNl || meta.summary || null;
+    console.log(`[calls] ${call.id.slice(0,8)} meta:`, meta.geslacht || 'ONBEKEND', meta.leeftijd || 'ONBEKEND');
 
     return {
       id:               call.id,
@@ -192,6 +192,8 @@ exports.handler = async (event) => {
       summary,
       geslacht:         meta.geslacht  || 'ONBEKEND',
       leeftijd:         meta.leeftijd  || 'ONBEKEND',
+      // debug
+      _metaRaw:         { geslacht: meta.geslacht, leeftijd: meta.leeftijd },
       lastUpdated:      meta.updatedAt || call.updatedAt || call.endedAt || call.startedAt || call.createdAt
     };
   });
