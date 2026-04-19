@@ -285,21 +285,38 @@ exports.handler = async (event) => {
                 model: 'claude-haiku-4-5-20251001', max_tokens: 80, temperature: 0,
                 messages: [{
                   role: 'user',
-                  content: `Je bent een Nederlandse apotheek triage assistent.
-Analyseer dit gesprek en bepaal de urgentie.
+                  content: `Je bent een Nederlandse apotheek triage assistent. Analyseer ALLEEN de berichten van de BELLER (niet van de assistent Lisa).
 
-ROOD alleen als: beller in direct gevaar, medische nood, bewusteloos, hartaanval, ernstige allergische reactie, niet kunnen ademen, zegt dat hij doodgaat.
+ROOD - directe medische nood:
+- Beller zegt dat hij/zij doodgaat of in gevaar is
+- Bewusteloosheid, niet kunnen ademen
+- Hartklachten, pijn op de borst
+- Ernstige allergische reactie
+- Vergiftiging of overdosis
+- Ernstig ongeluk of bloeding
 
-ORANJE alleen als: beller heeft actieve pijn/klachten, vraagt advies over eigen symptomen, medicatiefout, bijwerkingen die de beller nu ervaart.
+ORANJE - aandacht vereist, geen directe nood:
+- Beller heeft zelf last van bijwerkingen NU
+- Beller vraagt advies over eigen actieve klachten
+- Medicatiefout die beller zelf heeft gemaakt
+- Beller is ongerust over eigen gezondheid
+- Beller heeft pijn maar geen levensgevaar
 
-GROEN voor alles anders: informatievragen, openingstijden, recepten, algemene medicatie-informatie, prijsvragen.
+GROEN - routinevraag, geen urgentie:
+- Vragen over werking of verschil tussen medicijnen
+- Openingstijden, locatie, recepten
+- Algemene informatie over medicijnen
+- Beller is niet zelf ziek
 
-Analyseer ook wie de beller is op basis van het gesprek.
+BELANGRIJK:
+- Het woord "pijn" in een informatievraag = GROEN
+- Alleen als beller ZELF pijn ervaart = ORANJE
+- Alleen bij levensgevaar = ROOD
+
+Analyseer ook wie de beller is op basis van taalgebruik en woordkeuze.
 Bepaal:
 - Geslacht: MAN, VROUW of ONBEKEND
 - Leeftijd: KIND (onder 16), VOLWASSENE, SENIOR (boven 65) of ONBEKEND
-
-Baseer dit op taalgebruik en woordkeuze van de beller.
 
 Beller-berichten (alleen de beller, niet de assistent):
 ${gesprek}
