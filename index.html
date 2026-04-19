@@ -1,878 +1,706 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html class="dark" lang="nl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Apotheek Dashboard — Gespreksmonitoring</title>
-  <style>
-    /* ── Reset & Variabelen ─────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Apotheek Dashboard — Clinical Sanctuary</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 
-    :root {
-      /* Merk */
-      --primary:        #1B5E20;
-      --primary-mid:    #388E3C;
-      --primary-light:  #4CAF50;
-      --primary-bg:     #E8F5E9;
-
-      /* Urgentie: Rood */
-      --rood:           #C62828;
-      --rood-bar:       #D32F2F;
-      --rood-bg:        #FFEBEE;
-      --rood-border:    #FFCDD2;
-      --rood-text:      #B71C1C;
-
-      /* Urgentie: Oranje */
-      --oranje:         #E65100;
-      --oranje-bar:     #F57C00;
-      --oranje-bg:      #FFF8E1;
-      --oranje-border:  #FFCC80;
-      --oranje-text:    #BF360C;
-
-      /* Urgentie: Groen */
-      --groen:          #1B5E20;
-      --groen-bar:      #2E7D32;
-      --groen-bg:       #F1F8E9;
-      --groen-border:   #C5E1A5;
-      --groen-text:     #1B5E20;
-
-      /* Neutrale kleuren */
-      --bg:             #EEF2F7;
-      --card:           #FFFFFF;
-      --text:           #1A237E;
-      --text-mid:       #37474F;
-      --text-sec:       #546E7A;
-      --text-muted:     #90A4AE;
-      --border:         #E0E6ED;
-
-      /* Shadows */
-      --shadow-sm:      0 1px 4px rgba(0,0,0,0.06);
-      --shadow:         0 2px 8px rgba(0,0,0,0.09);
-      --shadow-lg:      0 4px 20px rgba(0,0,0,0.13);
+<!-- Exact tailwind config from design-reference -->
+<script id="tailwind-config">
+tailwind.config = {
+  darkMode: "class",
+  theme: {
+    extend: {
+      "colors": {
+        "surface":                    "#0f172a",
+        "on-surface":                 "#f1f5f9",
+        "background":                 "#0f172a",
+        "surface-container-low":      "#1e293b",
+        "on-error":                   "#ffffff",
+        "on-surface-variant":         "#94a3b8",
+        "secondary":                  "#fb923c",
+        "surface-variant":            "#334155",
+        "tertiary-fixed-dim":         "#fca5a5",
+        "primary-container":          "#166534",
+        "surface-bright":             "#1e293b",
+        "primary-fixed":              "#4ade80",
+        "on-primary":                 "#ffffff",
+        "on-primary-container":       "#bbf7d0",
+        "on-background":              "#f8fafc",
+        "on-tertiary-fixed":          "#450a0a",
+        "on-secondary":               "#ffffff",
+        "error":                      "#ef4444",
+        "surface-container-lowest":   "#111827",
+        "primary":                    "#22c55e",
+        "outline-variant":            "#475569",
+        "on-secondary-fixed-variant": "#7c2d12",
+        "on-primary-fixed-variant":   "#052e16",
+        "error-container":            "#991b1b",
+        "tertiary-fixed":             "#fee2e2",
+        "on-tertiary":                "#ffffff",
+        "surface-container-highest":  "#475569",
+        "surface-container":          "#1e293b",
+        "inverse-surface":            "#f8fafc",
+        "primary-fixed-dim":          "#86efac",
+        "on-secondary-fixed":         "#431407",
+        "tertiary":                   "#dc2626",
+        "on-tertiary-container":      "#fecaca",
+        "secondary-fixed":            "#ffedd5",
+        "outline":                    "#64748b",
+        "on-tertiary-fixed-variant":  "#991b1b",
+        "inverse-on-surface":         "#0f172a",
+        "on-error-container":         "#fecaca",
+        "surface-dim":                "#020617",
+        "surface-container-high":     "#334155",
+        "secondary-container":        "#ea580c",
+        "on-primary-fixed":           "#022c22",
+        "secondary-fixed-dim":        "#fdba74",
+        "inverse-primary":            "#22c55e",
+        "tertiary-container":         "#991b1b",
+        "on-secondary-container":     "#ffedd5",
+        "surface-tint":               "#22c55e"
+      },
+      "borderRadius": {
+        "DEFAULT": "0.125rem",
+        "lg":      "0.25rem",
+        "xl":      "0.5rem",
+        "full":    "0.75rem"
+      },
+      "fontFamily": {
+        "headline": ["Inter"],
+        "body":     ["Inter"],
+        "label":    ["Inter"]
+      }
     }
+  }
+}
+</script>
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-                   'Helvetica Neue', Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text-mid);
-      min-height: 100vh;
-      font-size: 14px;
-      line-height: 1.5;
-    }
+<style>
+  /* ── Base ──────────────────────────────────────────────────────── */
+  body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f1f5f9; }
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
 
-    /* ── Header ─────────────────────────────────────────────────────── */
-    .header {
-      background: #fff;
-      border-bottom: 3px solid var(--primary-light);
-      padding: 0 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 62px;
-      position: sticky;
-      top: 0;
-      z-index: 200;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.07);
-    }
+  /* ── Verbindingsstatus dot ──────────────────────────────────────── */
+  .conn-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: #475569;
+    transition: background-color 0.4s;
+  }
+  .conn-dot.ok   { background: #22c55e; animation: connBlink 2.4s infinite; }
+  .conn-dot.err  { background: #dc2626; }
+  .conn-dot.wait { background: #fb923c; animation: connBlink 1s infinite; }
 
-    .header-brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
+  @keyframes connBlink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.25; }
+  }
 
-    .brand-icon {
-      width: 38px;
-      height: 38px;
-      background: linear-gradient(135deg, var(--primary), var(--primary-mid));
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 19px;
-      box-shadow: 0 2px 6px rgba(27,94,32,0.35);
-      flex-shrink: 0;
-    }
+  /* ── Kaart animaties ────────────────────────────────────────────── */
+  @keyframes slideInCard {
+    from { opacity: 0; transform: translateY(-14px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0)    scale(1);    }
+  }
+  @keyframes glowUpdate {
+    0%   { box-shadow: 0 0 0 0   rgba(34,197,94,0.5); }
+    60%  { box-shadow: 0 0 0 10px rgba(34,197,94,0);  }
+    100% { box-shadow: none; }
+  }
+  .call-card.is-new     { animation: slideInCard 0.38s ease-out both; }
+  .call-card.is-updated { animation: glowUpdate  0.9s  ease-out both; }
 
-    .brand-text-main {
-      font-size: 17px;
-      font-weight: 700;
-      color: var(--primary);
-      letter-spacing: -0.2px;
-    }
-
-    .brand-text-sub {
-      font-size: 11px;
-      color: var(--text-sec);
-      margin-top: 1px;
-    }
-
-    .header-status {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-    }
-
-    .conn-badge {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 5px 12px;
-      font-size: 12px;
-      color: var(--text-sec);
-    }
-
-    .conn-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--text-muted);
-      transition: background 0.4s;
-      flex-shrink: 0;
-    }
-    .conn-dot.ok     { background: var(--primary-light); animation: blink 2.4s infinite; }
-    .conn-dot.err    { background: var(--rood); }
-    .conn-dot.wait   { background: var(--oranje-bar); animation: blink 1s infinite; }
-
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.35; }
-    }
-
-    .last-refresh {
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-
-    /* ── Statistieken ────────────────────────────────────────────────── */
-    .stats-row {
-      display: flex;
-      gap: 12px;
-      padding: 16px 24px 0;
-      flex-wrap: wrap;
-    }
-
-    .stat-tile {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 14px 18px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex: 1;
-      min-width: 130px;
-      box-shadow: var(--shadow-sm);
-      transition: box-shadow 0.2s;
-    }
-    .stat-tile:hover { box-shadow: var(--shadow); }
-
-    .stat-tile.accent-rood   { border-left: 4px solid var(--rood-bar); }
-    .stat-tile.accent-oranje { border-left: 4px solid var(--oranje-bar); }
-    .stat-tile.accent-groen  { border-left: 4px solid var(--groen-bar); }
-
-    .stat-icon-wrap {
-      width: 34px;
-      height: 34px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-      flex-shrink: 0;
-    }
-
-    .stat-num {
-      font-size: 24px;
-      font-weight: 700;
-      line-height: 1;
-    }
-
-    .stat-lbl {
-      font-size: 11px;
-      color: var(--text-sec);
-      margin-top: 2px;
-    }
-
-    /* ── Hoofdinhoud ─────────────────────────────────────────────────── */
-    .main-content {
-      padding: 20px 24px 40px;
-      max-width: 1440px;
-      margin: 0 auto;
-    }
-
-    .section + .section {
-      margin-top: 28px;
-    }
-
-    .section-head {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 14px;
-    }
-
-    .section-title {
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--text-sec);
-    }
-
-    .section-pill {
-      background: #ECEFF1;
-      color: var(--text-sec);
-      border-radius: 20px;
-      padding: 2px 9px;
-      font-size: 11px;
-      font-weight: 600;
-    }
-
-    .section-pill.active-pill {
-      background: var(--primary-bg);
-      color: var(--primary);
-    }
-
-    /* ── Kaarten raster ──────────────────────────────────────────────── */
-    .cards-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
-      gap: 16px;
-    }
-
-    /* ── Lege toestand ───────────────────────────────────────────────── */
-    .empty-state {
-      grid-column: 1 / -1;
-      text-align: center;
-      padding: 44px 24px;
-      color: var(--text-muted);
-    }
-
-    .empty-icon { font-size: 44px; margin-bottom: 12px; opacity: 0.45; }
-    .empty-ttl  { font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--text-sec); }
-    .empty-txt  { font-size: 13px; }
-
-    /* ── Gesprekskaart ───────────────────────────────────────────────── */
-    .call-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      overflow: hidden;
-      box-shadow: var(--shadow);
-      transition: box-shadow 0.22s, transform 0.22s;
-    }
-    .call-card:hover {
-      box-shadow: var(--shadow-lg);
-      transform: translateY(-1px);
-    }
-
-    /* Animaties voor nieuwe / bijgewerkte kaarten */
-    @keyframes slideIn {
-      from { opacity: 0; transform: translateY(-12px) scale(0.98); }
-      to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    @keyframes pulseGreen {
-      0%   { box-shadow: 0 0 0 0   rgba(76,175,80,0.45); }
-      50%  { box-shadow: 0 0 0 6px rgba(76,175,80,0); }
-      100% { box-shadow: var(--shadow); }
-    }
-    .call-card.is-new     { animation: slideIn   0.38s ease-out both; }
-    .call-card.is-updated { animation: pulseGreen 0.8s ease-out both; }
-
-    /* ── Urgentiebalk (bovenaan kaart) ───────────────────────────────── */
-    .urgency-bar { height: 7px; width: 100%; }
-    .urgency-bar.rood   { background: linear-gradient(90deg, var(--rood-bar), #EF5350); }
-    .urgency-bar.oranje { background: linear-gradient(90deg, var(--oranje-bar), #FFA726); }
-    .urgency-bar.groen  { background: linear-gradient(90deg, var(--groen-bar), #66BB6A); }
-
-    /* ── Kaartkop ────────────────────────────────────────────────────── */
-    .card-top {
-      padding: 13px 16px 10px;
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .caller-wrap {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .avatar {
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
-      font-weight: 700;
-      color: #fff;
-      flex-shrink: 0;
-    }
-    .avatar.rood   { background: var(--rood-bar); }
-    .avatar.oranje { background: var(--oranje-bar); }
-    .avatar.groen  { background: var(--groen-bar); }
-
-    .caller-name  { font-size: 14px; font-weight: 600; color: var(--text); }
-    .caller-phone { font-size: 12px; color: var(--text-sec); margin-top: 1px; }
-
-    .card-meta {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 5px;
-      flex-shrink: 0;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 3px 9px;
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: 700;
-    }
-    .badge.live {
-      background: var(--primary-bg);
-      color: var(--primary);
-    }
-    .badge.ended {
-      background: #ECEFF1;
-      color: #607D8B;
-    }
-
-    .meta-time {
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-
-    /* ── Urgentie indicator ──────────────────────────────────────────── */
-    .urgency-strip {
-      margin: 2px 16px 10px;
-      padding: 8px 12px;
-      border-radius: 9px;
-      display: flex;
-      align-items: flex-start;
-      gap: 7px;
-      border: 1px solid;
-    }
-    .urgency-strip.rood   { background: var(--rood-bg);   border-color: var(--rood-border); }
-    .urgency-strip.oranje { background: var(--oranje-bg); border-color: var(--oranje-border); }
-    .urgency-strip.groen  { background: var(--groen-bg);  border-color: var(--groen-border); }
-
-    .urgency-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
-
-    .urgency-body { display: flex; flex-direction: column; gap: 2px; }
-
-    .urgency-lvl {
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .urgency-lvl.rood   { color: var(--rood-text); }
-    .urgency-lvl.oranje { color: var(--oranje-text); }
-    .urgency-lvl.groen  { color: var(--groen-text); }
-
-    .urgency-reason {
-      font-size: 12px;
-      color: var(--text-sec);
-      line-height: 1.4;
-    }
-
-    /* ── Transcript ──────────────────────────────────────────────────── */
-    .transcript-wrap {
-      margin: 0 16px 14px;
-      max-height: 220px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-      scroll-behavior: smooth;
-      padding-right: 2px;
-    }
-    .transcript-wrap::-webkit-scrollbar        { width: 4px; }
-    .transcript-wrap::-webkit-scrollbar-track  { background: #f0f0f0; border-radius: 4px; }
-    .transcript-wrap::-webkit-scrollbar-thumb  { background: #c8c8c8; border-radius: 4px; }
-
-    .t-msg {
-      display: flex;
-      flex-direction: column;
-      max-width: 86%;
-    }
-    .t-msg.user      { align-self: flex-start; }
-    .t-msg.assistant { align-self: flex-end; }
-
-    .t-role {
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-bottom: 3px;
-      padding: 0 4px;
-    }
-    .t-msg.assistant .t-role { text-align: right; }
-
-    .t-bubble {
-      padding: 8px 12px;
-      border-radius: 12px;
-      font-size: 13px;
-      line-height: 1.5;
-      word-break: break-word;
-    }
-    .t-msg.user      .t-bubble { background: #F1F3F5; color: var(--text-mid); border-bottom-left-radius: 4px; }
-    .t-msg.assistant .t-bubble { background: #E3F2FD; color: #0D47A1;        border-bottom-right-radius: 4px; }
-
-    .t-empty {
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 12px;
-      padding: 14px 0;
-      font-style: italic;
-    }
-
-    /* Ruwe transcript (als string) */
-    .t-raw {
-      background: #FAFAFA;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 12px;
-      font-size: 12px;
-      color: var(--text-sec);
-      white-space: pre-wrap;
-      line-height: 1.6;
-    }
-
-    /* ── Samenvatting ────────────────────────────────────────────────── */
-    .summary-block {
-      margin: 0 16px 14px;
-      padding: 9px 12px;
-      background: #F8FAFC;
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--primary-light);
-      border-radius: 0 8px 8px 0;
-    }
-    .summary-lbl {
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: var(--text-muted);
-      margin-bottom: 4px;
-    }
-    .summary-txt {
-      font-size: 12px;
-      color: var(--text-sec);
-      line-height: 1.55;
-    }
-
-    /* ── Responsief ──────────────────────────────────────────────────── */
-    @media (max-width: 680px) {
-      .header         { padding: 0 14px; }
-      .stats-row      { padding: 12px 14px 0; gap: 8px; }
-      .stat-tile      { min-width: 100px; padding: 11px 13px; }
-      .stat-num       { font-size: 20px; }
-      .main-content   { padding: 14px 14px 32px; }
-      .cards-grid     { grid-template-columns: 1fr; }
-      .last-refresh   { display: none; }
-    }
-  </style>
+  /* ── Transcript scrollbar ───────────────────────────────────────── */
+  .transcript-scroll::-webkit-scrollbar       { width: 3px; }
+  .transcript-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 2px; }
+  .transcript-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 2px; }
+</style>
 </head>
-<body>
+<body class="text-on-surface bg-surface">
 
-<!-- ── Header ─────────────────────────────────────────────────────────── -->
-<header class="header">
-  <div class="header-brand">
-    <div class="brand-icon">🏥</div>
-    <div>
-      <div class="brand-text-main">Apotheek Dashboard</div>
-      <div class="brand-text-sub">Realtime gespreksmonitoring via Vapi · AI-urgentie door Claude</div>
+<!-- ── Sidebar ───────────────────────────────────────────────────────── -->
+<aside class="fixed left-0 top-0 h-full z-40 p-4 hidden lg:flex flex-col bg-slate-900/60 backdrop-blur-2xl rounded-r-3xl w-72 border-r border-slate-800">
+  <div class="flex items-center gap-3 px-4 py-8">
+    <div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-slate-900">
+      <span class="material-symbols-outlined font-bold">clinical_notes</span>
     </div>
+    <span class="text-lg font-black text-primary">Pharmacy Ops</span>
   </div>
-  <div class="header-status">
-    <div class="conn-badge">
+
+  <nav class="flex-1 space-y-2">
+    <a class="flex items-center gap-4 px-4 py-3 bg-slate-800 text-primary shadow-lg rounded-xl transition-all duration-300 ease-in-out border border-slate-700/50" href="#">
+      <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">monitor_heart</span>
+      <span class="font-medium text-sm">Live Monitor</span>
+    </a>
+    <a class="flex items-center gap-4 px-4 py-3 text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all duration-300 ease-in-out rounded-xl" href="#">
+      <span class="material-symbols-outlined">history</span>
+      <span class="font-medium text-sm">Patiëntgeschiedenis</span>
+    </a>
+    <a class="flex items-center gap-4 px-4 py-3 text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all duration-300 ease-in-out rounded-xl" href="#">
+      <span class="material-symbols-outlined">medication</span>
+      <span class="font-medium text-sm">Voorraad</span>
+    </a>
+    <a class="flex items-center gap-4 px-4 py-3 text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all duration-300 ease-in-out rounded-xl" href="#">
+      <span class="material-symbols-outlined">analytics</span>
+      <span class="font-medium text-sm">Rapportage</span>
+    </a>
+  </nav>
+
+  <!-- Verbindingsstatus + refresh in sidebar voet -->
+  <div class="mt-auto p-4 bg-slate-800/50 rounded-2xl border border-slate-700/50">
+    <div class="flex items-center gap-2 mb-1">
       <div class="conn-dot wait" id="connDot"></div>
-      <span id="connText">Verbinden…</span>
+      <span class="text-xs font-semibold text-slate-300" id="connText">Verbinden…</span>
     </div>
-    <div class="last-refresh" id="lastRefresh"></div>
+    <p class="text-[10px] text-slate-500" id="lastRefresh">—</p>
   </div>
-</header>
+</aside>
 
-<!-- ── Statistieken ───────────────────────────────────────────────────── -->
-<div class="stats-row">
-  <div class="stat-tile">
-    <div class="stat-icon-wrap" style="background:#E3F2FD">📞</div>
-    <div>
-      <div class="stat-num" id="sActief">—</div>
-      <div class="stat-lbl">Actief nu</div>
-    </div>
-  </div>
-  <div class="stat-tile">
-    <div class="stat-icon-wrap" style="background:#ECEFF1">📋</div>
-    <div>
-      <div class="stat-num" id="sVandaag">—</div>
-      <div class="stat-lbl">Vandaag totaal</div>
-    </div>
-  </div>
-  <div class="stat-tile accent-rood">
-    <div class="stat-icon-wrap" style="background:var(--rood-bg)">🔴</div>
-    <div>
-      <div class="stat-num" id="sRood" style="color:var(--rood)">—</div>
-      <div class="stat-lbl">Urgent</div>
-    </div>
-  </div>
-  <div class="stat-tile accent-oranje">
-    <div class="stat-icon-wrap" style="background:var(--oranje-bg)">🟠</div>
-    <div>
-      <div class="stat-num" id="sOranje" style="color:var(--oranje)">—</div>
-      <div class="stat-lbl">Aandacht vereist</div>
-    </div>
-  </div>
-  <div class="stat-tile accent-groen">
-    <div class="stat-icon-wrap" style="background:var(--groen-bg)">🟢</div>
-    <div>
-      <div class="stat-num" id="sGroen" style="color:var(--groen)">—</div>
-      <div class="stat-lbl">Geen urgentie</div>
-    </div>
-  </div>
-</div>
+<!-- ── Main ──────────────────────────────────────────────────────────── -->
+<main class="lg:ml-72 min-h-screen flex flex-col bg-surface">
 
-<!-- ── Hoofdinhoud ────────────────────────────────────────────────────── -->
-<main class="main-content">
-
-  <!-- Actieve gesprekken -->
-  <section class="section">
-    <div class="section-head">
-      <span class="section-title">Actieve gesprekken</span>
-      <span class="section-pill active-pill" id="pilActief">0</span>
+  <!-- Top App Bar -->
+  <header class="sticky top-0 z-30 w-full px-8 py-4 flex justify-between items-center bg-surface/80 backdrop-blur-xl border-b border-slate-800/50">
+    <div class="flex items-center gap-4">
+      <h1 class="font-['Inter'] tracking-tight text-3xl font-semibold text-primary">Clinical Sanctuary</h1>
     </div>
-    <div class="cards-grid" id="activeGrid">
-      <div class="empty-state">
-        <div class="empty-icon">📵</div>
-        <div class="empty-ttl">Geen actieve gesprekken</div>
-        <div class="empty-txt">Inkomende Vapi-gesprekken verschijnen hier automatisch</div>
+    <div class="flex items-center gap-5">
+      <div class="hidden md:flex gap-4 text-sm font-medium">
+        <span class="text-primary font-bold">Overzicht</span>
+        <span class="text-slate-400 hover:text-primary cursor-pointer transition-colors">Berichten</span>
+        <span class="text-slate-400 hover:text-primary cursor-pointer transition-colors">Instellingen</span>
+      </div>
+      <!-- Snelle statistieken in header (verborgen op mobiel) -->
+      <div class="hidden md:flex items-center gap-3 text-xs text-slate-400 border-l border-slate-700 pl-5">
+        <span>Actief <span id="sActief" class="text-primary font-bold ml-1">0</span></span>
+        <span>Vandaag <span id="sVandaag" class="text-white font-bold ml-1">0</span></span>
+      </div>
+      <!-- Mobiel: verbindingsdot -->
+      <div class="flex lg:hidden items-center gap-2">
+        <div class="conn-dot wait" id="connDotMobile"></div>
+      </div>
+      <div class="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
+        <span class="material-symbols-outlined text-slate-300">notifications</span>
       </div>
     </div>
-  </section>
+  </header>
 
-  <!-- Recente gesprekken -->
-  <section class="section">
-    <div class="section-head">
-      <span class="section-title">Recente gesprekken</span>
-      <span class="section-pill" id="pilRecent">0</span>
-    </div>
-    <div class="cards-grid" id="recentGrid">
-      <div class="empty-state">
-        <div class="empty-icon">📋</div>
-        <div class="empty-ttl">Nog geen beëindigde gesprekken</div>
-        <div class="empty-txt">Afgeronde gesprekken worden hier opgeslagen</div>
+  <div class="p-8 space-y-10">
+
+    <!-- ── Bento statistiekenkaarten ─────────────────────────────── -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+      <!-- Rood — Urgent -->
+      <div class="bg-tertiary-container/90 text-white p-8 rounded-[2rem] flex flex-col justify-between aspect-video md:aspect-auto border border-tertiary-container shadow-2xl shadow-red-900/20">
+        <div class="flex justify-between items-start">
+          <span class="material-symbols-outlined text-4xl">emergency</span>
+          <span class="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20">Live</span>
+        </div>
+        <div>
+          <p class="text-6xl font-black tracking-tighter mb-1" id="sRood">0</p>
+          <p class="text-sm font-medium opacity-90">Urgente Oproepen</p>
+        </div>
       </div>
-    </div>
-  </section>
 
+      <!-- Oranje — Aandacht -->
+      <div class="bg-secondary-container/90 text-white p-8 rounded-[2rem] flex flex-col justify-between border border-secondary-container shadow-2xl shadow-orange-900/20">
+        <div class="flex justify-between items-start">
+          <span class="material-symbols-outlined text-4xl">priority_high</span>
+          <span class="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20">Actie Vereist</span>
+        </div>
+        <div>
+          <p class="text-6xl font-black tracking-tighter mb-1" id="sOranje">0</p>
+          <p class="text-sm font-medium opacity-90">Aandacht Vereist</p>
+        </div>
+      </div>
+
+      <!-- Groen — Normaal -->
+      <div class="bg-primary-container/90 text-white p-8 rounded-[2rem] flex flex-col justify-between border border-primary-container shadow-2xl shadow-green-900/20">
+        <div class="flex justify-between items-start">
+          <span class="material-symbols-outlined text-4xl">published_with_changes</span>
+          <span class="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20">Normaal</span>
+        </div>
+        <div>
+          <p class="text-6xl font-black tracking-tighter mb-1" id="sGroen">0</p>
+          <p class="text-sm font-medium opacity-90">Actieve Routine</p>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ── Actieve gesprekken ─────────────────────────────────────── -->
+    <section>
+      <div class="flex items-end justify-between mb-6">
+        <div>
+          <h2 class="text-2xl font-bold tracking-tight text-white">Actieve Gesprekken</h2>
+          <p class="text-slate-400 text-sm">Real-time patiënt interacties en AI-geassisteerde urgentie-analyse</p>
+        </div>
+        <span class="bg-slate-800 border border-slate-700 text-primary font-bold text-sm px-4 py-2 rounded-full" id="pilActief">0</span>
+      </div>
+
+      <!-- Grid voor actieve gesprekskaarten — gevuld door JS -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" id="activeGrid">
+        <div class="empty-state col-span-full text-center py-16 text-slate-500">
+          <span class="material-symbols-outlined text-6xl block mb-3 opacity-20">phone_disabled</span>
+          <p class="font-semibold text-slate-400">Geen actieve gesprekken</p>
+          <p class="text-sm mt-1">Inkomende Vapi-gesprekken verschijnen hier automatisch</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Recente geschiedenis (tabel) ─────────────────────────── -->
+    <section class="bg-slate-800/40 rounded-[2.5rem] p-8 border border-slate-700/50">
+      <div class="flex items-center justify-between mb-8">
+        <div>
+          <h2 class="text-xl font-bold tracking-tight text-white">Recente Geschiedenis</h2>
+          <p class="text-slate-400 text-sm mt-1">
+            Beëindigde gesprekken —
+            <span id="pilRecent" class="font-bold text-white">0</span> opgeslagen
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button class="px-4 py-2 bg-slate-700 text-white rounded-full text-xs font-bold shadow-sm border border-slate-600">Vandaag</button>
+          <button class="px-4 py-2 text-slate-400 text-xs font-bold hover:text-white transition-colors">Laatste 7 dagen</button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-separate border-spacing-y-3">
+          <thead>
+            <tr class="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em]">
+              <th class="px-6 pb-2">Tijd</th>
+              <th class="px-6 pb-2">Beller &amp; AI-analyse</th>
+              <th class="px-6 pb-2">Duur</th>
+              <th class="px-6 pb-2 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody id="recentTbody">
+            <tr>
+              <td colspan="4" class="text-center py-12 text-slate-500">
+                <span class="material-symbols-outlined text-4xl block mb-2 opacity-20">history</span>
+                <span class="text-sm">Nog geen beëindigde gesprekken</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Spacer voor bottom nav op mobiel -->
+  <div class="h-24 lg:hidden"></div>
 </main>
 
-<!-- ── JavaScript ─────────────────────────────────────────────────────── -->
+<!-- ── Bottom nav (alleen mobiel) ───────────────────────────────────── -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 lg:hidden bg-slate-900/90 backdrop-blur-lg rounded-t-3xl border-t border-slate-800/50 shadow-2xl">
+  <div class="flex flex-col items-center justify-center bg-primary text-slate-900 rounded-2xl px-6 py-2">
+    <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">forum</span>
+    <span class="text-[11px] font-semibold uppercase tracking-wider">Live</span>
+  </div>
+  <div class="flex flex-col items-center justify-center text-slate-500">
+    <span class="material-symbols-outlined">emergency</span>
+    <span class="text-[11px] font-semibold uppercase tracking-wider">Meldingen</span>
+  </div>
+  <div class="flex flex-col items-center justify-center text-slate-500">
+    <span class="material-symbols-outlined">receipt_long</span>
+    <span class="text-[11px] font-semibold uppercase tracking-wider">Geschiedenis</span>
+  </div>
+  <div class="flex flex-col items-center justify-center text-slate-500">
+    <span class="material-symbols-outlined">settings</span>
+    <span class="text-[11px] font-semibold uppercase tracking-wider">Instellingen</span>
+  </div>
+</nav>
+
+<!-- ── JavaScript ────────────────────────────────────────────────────── -->
 <script>
-  'use strict';
+'use strict';
 
-  const POLL_MS    = 2000;
-  const MAX_RECENT = 20;
+const POLL_MS    = 2000;
+const MAX_RECENT = 20;
 
-  // ── Hulpfuncties ─────────────────────────────────────────────────────
+// ── Kaartconfiguratie per urgentieniveau ──────────────────────────────
 
-  function esc(str) {
-    if (!str) return '';
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const CARD_CFG = {
+  rood: {
+    iconBg:      'bg-tertiary-container',
+    icon:        'emergency',
+    borderColor: 'border-tertiary',
+    timeColor:   'text-tertiary-fixed-dim',
+    btnBg:       'bg-tertiary hover:bg-red-500',
+    chipBg:      'bg-tertiary-container/40 text-tertiary-fixed-dim border-tertiary-container/50',
+    chipLabel:   'URGENT',
+    btnLabel:    'Behandel Nu'
+  },
+  oranje: {
+    iconBg:      'bg-secondary-container',
+    icon:        'priority_high',
+    borderColor: 'border-secondary',
+    timeColor:   'text-secondary',
+    btnBg:       'bg-secondary-container hover:bg-orange-500',
+    chipBg:      'bg-secondary-container/40 text-secondary-fixed-dim border-secondary-container/50',
+    chipLabel:   'AANDACHT',
+    btnLabel:    'Bekijk Melding'
+  },
+  groen: {
+    iconBg:      'bg-primary-container',
+    icon:        'chat',
+    borderColor: 'border-primary',
+    timeColor:   'text-primary',
+    btnBg:       'bg-primary-container hover:bg-green-600',
+    chipBg:      'bg-primary-container/40 text-primary-fixed-dim border-primary-container/50',
+    chipLabel:   'NORMAAL',
+    btnLabel:    'Beantwoorden'
+  }
+};
+
+const TABLE_CHIP = {
+  rood:   { cls: 'bg-tertiary-container/30 text-tertiary-fixed-dim border-tertiary-container/50',    label: 'URGENT'      },
+  oranje: { cls: 'bg-secondary-container/30 text-secondary-fixed-dim border-secondary-container/50', label: 'AANDACHT'    },
+  groen:  { cls: 'bg-primary-container/30 text-primary-fixed border-primary-container/50',           label: 'AFGEHANDELD' }
+};
+
+// ── Hulpfuncties ──────────────────────────────────────────────────────
+
+function esc(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('nl-NL', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function fmtDuur(startIso, endIso) {
+  const ms = (endIso ? new Date(endIso) : new Date()) - new Date(startIso);
+  const s  = Math.max(0, Math.floor(ms / 1000));
+  const m  = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2,'0')}`;
+}
+
+function timeSince(iso) {
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (diff < 60)   return `${diff}s geleden`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m geleden`;
+  return `${Math.floor(diff / 3600)}u geleden`;
+}
+
+function fmtTel(num) {
+  if (!num || num === 'Onbekend') return num || 'Onbekend';
+  if (/^\+316\d{8}$/.test(num))
+    return `+31 6 ${num.slice(4,8)} ${num.slice(8)}`;
+  if (/^\+31\d{9}$/.test(num))
+    return `+31 ${num.slice(3,5)} ${num.slice(5,8)} ${num.slice(8)}`;
+  return num;
+}
+
+// ── Kaart HTML opbouwen ───────────────────────────────────────────────
+
+function buildCard(call) {
+  const lvl    = (call.urgency?.level in CARD_CFG) ? call.urgency.level : 'groen';
+  const cfg    = CARD_CFG[lvl];
+  const live   = call.status === 'active';
+  const reason = call.urgency?.reason || 'Urgentie-analyse in verwerking…';
+
+  // Transcript: toon laatste 3 regels compact
+  let transcriptHtml;
+  if (call.transcript && call.transcript.length > 0) {
+    transcriptHtml = `
+      <div class="transcript-scroll bg-slate-950/60 rounded-2xl p-3 space-y-2 max-h-28 overflow-y-auto">
+        ${call.transcript.slice(-3).map(t => `
+          <div class="flex gap-2 items-start">
+            <span class="text-[10px] font-bold uppercase ${t.role === 'user' ? 'text-slate-500' : 'text-primary'} mt-0.5 w-14 shrink-0">
+              ${t.role === 'user' ? 'Beller' : 'Assist.'}
+            </span>
+            <p class="text-xs text-slate-300 leading-relaxed">${esc(t.text)}</p>
+          </div>`).join('')}
+      </div>`;
+  } else if (call.transcriptRaw) {
+    transcriptHtml = `
+      <div class="transcript-scroll bg-slate-950/60 rounded-2xl p-3 max-h-28 overflow-y-auto">
+        <pre class="text-xs text-slate-400 whitespace-pre-wrap font-sans leading-relaxed">${esc(call.transcriptRaw.slice(0,300))}</pre>
+      </div>`;
+  } else {
+    transcriptHtml = `<p class="text-xs text-slate-500 italic py-1">Wachten op transcriptie…</p>`;
   }
 
-  function fmtTime(iso) {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleTimeString('nl-NL', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-  }
+  const card = document.createElement('div');
+  card.className      = 'call-card group bg-slate-800/40 p-1 rounded-[2.5rem] transition-all duration-300 hover:bg-slate-800/60 border border-slate-700/50 hover:border-slate-600';
+  card.dataset.id          = call.id;
+  card.dataset.lastUpdated = call.lastUpdated;
 
-  function fmtDuur(startIso, endIso) {
-    const ms = (endIso ? new Date(endIso) : new Date()) - new Date(startIso);
-    const s  = Math.max(0, Math.floor(ms / 1000));
-    const m  = Math.floor(s / 60);
-    return `${m}:${String(s % 60).padStart(2,'0')}`;
-  }
+  card.innerHTML = `
+    <div class="p-6 rounded-[2.25rem] h-full flex flex-col">
 
-  function fmtTel(num) {
-    if (!num || num === 'Onbekend') return num || 'Onbekend';
-    if (/^\+316\d{8}$/.test(num))
-      return `+31 6 ${num.slice(4,8)} ${num.slice(8)}`;
-    if (/^\+31\d{9}$/.test(num))
-      return `+31 ${num.slice(3,5)} ${num.slice(5,8)} ${num.slice(8)}`;
-    return num;
-  }
-
-  function initialen(naam) {
-    if (!naam || naam === 'Onbekende beller') return '?';
-    return naam.split(/\s+/).map(n => n[0] || '').join('').toUpperCase().slice(0, 2);
-  }
-
-  const URGENCY_META = {
-    rood:   { icon: '🔴', label: 'Dringende actie vereist' },
-    oranje: { icon: '🟠', label: 'Actie binnenkort vereist' },
-    groen:  { icon: '🟢', label: 'Geen urgentie'            }
-  };
-
-  // ── Kaart HTML opbouwen ───────────────────────────────────────────────
-
-  function buildCard(call) {
-    const lvl    = (call.urgency?.level in URGENCY_META) ? call.urgency.level : 'groen';
-    const meta   = URGENCY_META[lvl];
-    const live   = call.status === 'active';
-    const reason = call.urgency?.reason || '';
-
-    /* Transcript */
-    let transcriptHtml;
-    if (call.transcript && call.transcript.length > 0) {
-      transcriptHtml = call.transcript.map(t => `
-        <div class="t-msg ${esc(t.role)}">
-          <div class="t-role">${t.role === 'user' ? 'Beller' : 'Assistent'}</div>
-          <div class="t-bubble">${esc(t.text)}</div>
-        </div>`).join('');
-    } else if (call.transcriptRaw) {
-      transcriptHtml = `<div class="t-raw">${esc(call.transcriptRaw)}</div>`;
-    } else {
-      transcriptHtml = '<div class="t-empty">Wachten op transcriptie…</div>';
-    }
-
-    /* Tijdsinformatie */
-    const duurSpan = live
-      ? `<span class="duration-live" data-start="${esc(call.startTime)}">⏱ ${fmtDuur(call.startTime)}</span>`
-      : `<span>✓ ${fmtTime(call.endTime)}</span>`;
-
-    /* Samenvatting (alleen bij beëindigd gesprek) */
-    const summaryHtml = (!live && call.summary)
-      ? `<div class="summary-block">
-           <div class="summary-lbl">Samenvatting</div>
-           <div class="summary-txt">${esc(call.summary)}</div>
-         </div>`
-      : '';
-
-    const card = document.createElement('div');
-    card.className = 'call-card';
-    card.dataset.id          = call.id;
-    card.dataset.lastUpdated = call.lastUpdated;
-
-    card.innerHTML = `
-      <div class="urgency-bar ${lvl}"></div>
-      <div class="card-top">
-        <div class="caller-wrap">
-          <div class="avatar ${lvl}">${initialen(call.callerName)}</div>
+      <!-- Kaartkop: beller + badge -->
+      <div class="flex justify-between items-start mb-5">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-full ${cfg.iconBg} flex items-center justify-center text-white shrink-0">
+            <span class="material-symbols-outlined text-xl">${cfg.icon}</span>
+          </div>
           <div>
-            <div class="caller-name">${esc(call.callerName)}</div>
-            <div class="caller-phone">${fmtTel(call.phoneNumber)}</div>
+            <h3 class="font-bold text-sm text-slate-100">${esc(call.callerName)}</h3>
+            <p class="text-[10px] ${cfg.timeColor} font-bold uppercase tracking-tighter">
+              ${timeSince(call.startTime)} · ${esc(fmtTel(call.phoneNumber))}
+            </p>
           </div>
         </div>
-        <div class="card-meta">
-          <span class="badge ${live ? 'live' : 'ended'}">
-            ${live ? '● Actief' : '✓ Beëindigd'}
+        <span class="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20 shrink-0 text-white">
+          ${live ? 'Live' : fmtTime(call.endTime)}
+        </span>
+      </div>
+
+      <div class="space-y-3 flex-1">
+
+        <!-- AI urgentie-analyse box -->
+        <div class="bg-slate-900/80 p-4 rounded-2xl border-l-4 ${cfg.borderColor}">
+          <p class="text-xs font-bold text-slate-400 mb-1">AI URGENTIE-ANALYSE</p>
+          <p class="text-sm leading-relaxed text-slate-200">${esc(reason)}</p>
+        </div>
+
+        <!-- Transcript fragment -->
+        ${transcriptHtml}
+
+        <!-- Chips: urgentie, telefoon, duur -->
+        <div class="flex gap-2 flex-wrap">
+          <span class="px-3 py-1 ${cfg.chipBg} text-[10px] font-bold rounded-full border">${cfg.chipLabel}</span>
+          ${call.phoneNumber && call.phoneNumber !== 'Onbekend'
+            ? `<span class="px-3 py-1 bg-slate-700/50 text-slate-300 text-[10px] font-bold rounded-full border border-slate-600/30">
+                 ${esc(fmtTel(call.phoneNumber))}
+               </span>`
+            : ''}
+          <span class="px-3 py-1 bg-slate-700/50 text-slate-300 text-[10px] font-bold rounded-full border border-slate-600/30">
+            ${live
+              ? `<span class="duration-live" data-start="${esc(call.startTime)}">${fmtDuur(call.startTime)}</span>`
+              : fmtDuur(call.startTime, call.endTime)}
           </span>
-          <div class="meta-time">${duurSpan}</div>
-          <div class="meta-time">Gestart: ${fmtTime(call.startTime)}</div>
         </div>
-      </div>
-      <div class="urgency-strip ${lvl}">
-        <div class="urgency-icon">${meta.icon}</div>
-        <div class="urgency-body">
-          <div class="urgency-lvl ${lvl}">${meta.label}</div>
-          ${reason ? `<div class="urgency-reason">${esc(reason)}</div>` : ''}
-        </div>
-      </div>
-      <div class="transcript-wrap">${transcriptHtml}</div>
-      ${summaryHtml}
-    `;
 
-    /* Scroll transcript naar beneden */
-    requestAnimationFrame(() => {
-      const wrap = card.querySelector('.transcript-wrap');
-      if (wrap) wrap.scrollTop = wrap.scrollHeight;
-    });
+      </div>
 
-    return card;
+      <!-- Actieknop -->
+      <button class="mt-5 w-full py-3 ${cfg.btnBg} text-white font-bold rounded-xl text-sm transition-colors">
+        ${cfg.btnLabel}
+      </button>
+
+    </div>
+  `;
+
+  return card;
+}
+
+// ── Actieve gesprekken raster bijwerken ───────────────────────────────
+
+function updateGrid(gridId, calls, emptyIcon, emptyTtl, emptyTxt) {
+  const grid = document.getElementById(gridId);
+
+  if (calls.length === 0) {
+    grid.innerHTML = `
+      <div class="empty-state col-span-full text-center py-16 text-slate-500">
+        <span class="material-symbols-outlined text-6xl block mb-3 opacity-20">${emptyIcon}</span>
+        <p class="font-semibold text-slate-400">${emptyTtl}</p>
+        <p class="text-sm mt-1">${emptyTxt}</p>
+      </div>`;
+    return;
   }
 
-  // ── Raster bijwerken ──────────────────────────────────────────────────
+  /* Verwijder lege toestand */
+  const emptyEl = grid.querySelector('.empty-state');
+  if (emptyEl) emptyEl.remove();
 
-  function updateGrid(gridId, calls, emptyIcon, emptyTtl, emptyTxt) {
-    const grid = document.getElementById(gridId);
+  /* Bijhouden welke ID's aanwezig zijn */
+  const existing = new Map(
+    [...grid.querySelectorAll('.call-card')].map(el => [el.dataset.id, el])
+  );
+  const incoming = new Set(calls.map(c => c.id));
 
-    if (calls.length === 0) {
-      grid.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">${emptyIcon}</div>
-          <div class="empty-ttl">${emptyTtl}</div>
-          <div class="empty-txt">${emptyTxt}</div>
-        </div>`;
-      return;
-    }
+  /* Verwijder kaarten die niet meer in de lijst staan */
+  existing.forEach((el, id) => {
+    if (!incoming.has(id)) el.remove();
+  });
 
-    /* Verwijder lege toestand */
-    const emptyEl = grid.querySelector('.empty-state');
-    if (emptyEl) emptyEl.remove();
+  /* Voeg nieuwe of bijgewerkte kaarten in op de juiste positie */
+  calls.forEach((call, idx) => {
+    const oldCard = existing.get(call.id);
 
-    /* Bijhouden welke ID's er zijn */
-    const existing = new Map(
-      [...grid.querySelectorAll('.call-card')].map(el => [el.dataset.id, el])
-    );
-    const incoming = new Set(calls.map(c => c.id));
-
-    /* Verwijder kaarten die niet meer in de lijst staan */
-    existing.forEach((el, id) => {
-      if (!incoming.has(id)) el.remove();
-    });
-
-    /* Voeg nieuwe of bijgewerkte kaarten in op de juiste positie */
-    calls.forEach((call, idx) => {
-      const oldCard = existing.get(call.id);
-
-      if (oldCard) {
-        if (oldCard.dataset.lastUpdated !== call.lastUpdated) {
-          /* Data gewijzigd → kaart vervangen */
-          const newCard = buildCard(call);
-          newCard.classList.add('is-updated');
-          grid.replaceChild(newCard, oldCard);
-        }
-        /* Anders: kaart ongewijzigd laten */
-      } else {
-        /* Nieuwe kaart */
+    if (oldCard) {
+      if (oldCard.dataset.lastUpdated !== call.lastUpdated) {
+        /* Data gewijzigd → kaart vervangen */
         const newCard = buildCard(call);
-        newCard.classList.add('is-new');
-
-        const cards = [...grid.querySelectorAll('.call-card')];
-        if (idx === 0 || cards.length === 0) {
-          grid.prepend(newCard);
-        } else if (idx >= cards.length) {
-          grid.append(newCard);
-        } else {
-          grid.insertBefore(newCard, cards[idx]);
-        }
+        newCard.classList.add('is-updated');
+        grid.replaceChild(newCard, oldCard);
       }
-    });
-  }
-
-  // ── Live duratie bijwerken ────────────────────────────────────────────
-
-  function tickDurations() {
-    document.querySelectorAll('.duration-live').forEach(el => {
-      const start = el.dataset.start;
-      if (start) el.textContent = '⏱ ' + fmtDuur(start);
-    });
-  }
-
-  // ── Statistieken bijwerken ────────────────────────────────────────────
-
-  function updateStats(calls) {
-    const vandaag = new Date().toDateString();
-    const vandaagCalls = calls.filter(c => new Date(c.startTime).toDateString() === vandaag);
-
-    const actief = calls.filter(c => c.status === 'active').length;
-    const rood   = calls.filter(c => c.urgency?.level === 'rood').length;
-    const oranje = calls.filter(c => c.urgency?.level === 'oranje').length;
-    const groen  = calls.filter(c => c.urgency?.level === 'groen').length;
-
-    document.getElementById('sActief').textContent  = actief;
-    document.getElementById('sVandaag').textContent = vandaagCalls.length;
-    document.getElementById('sRood').textContent    = rood;
-    document.getElementById('sOranje').textContent  = oranje;
-    document.getElementById('sGroen').textContent   = groen;
-  }
-
-  // ── Verbindingsstatus ─────────────────────────────────────────────────
-
-  function setConnStatus(state) {
-    const dot  = document.getElementById('connDot');
-    const text = document.getElementById('connText');
-    dot.className = 'conn-dot ' + state;
-    text.textContent = {
-      ok:   'Verbonden',
-      err:  'Verbindingsfout',
-      wait: 'Verbinden…'
-    }[state] || '';
-  }
-
-  // ── Hoofd poll ────────────────────────────────────────────────────────
-
-  async function poll() {
-    try {
-      const res = await fetch('/api/calls', {
-        cache:  'no-store',
-        signal: AbortSignal.timeout(5000)
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const calls = await res.json();
-
-      setConnStatus('ok');
-
-      /* Sorteer actief op urgentie (rood→oranje→groen), daarna op starttijd */
-      const urgOrd = { rood: 0, oranje: 1, groen: 2 };
-      const active = calls
-        .filter(c => c.status === 'active')
-        .sort((a, b) => {
-          const da = urgOrd[a.urgency?.level] ?? 2;
-          const db = urgOrd[b.urgency?.level] ?? 2;
-          return da !== db ? da - db : new Date(b.startTime) - new Date(a.startTime);
-        });
-
-      const recent = calls
-        .filter(c => c.status === 'ended')
-        .sort((a, b) => new Date(b.endTime || b.lastUpdated) - new Date(a.endTime || a.lastUpdated))
-        .slice(0, MAX_RECENT);
-
-      updateStats(calls);
-
-      document.getElementById('pilActief').textContent = active.length;
-      document.getElementById('pilRecent').textContent = recent.length;
-
-      updateGrid(
-        'activeGrid', active,
-        '📵', 'Geen actieve gesprekken',
-        'Inkomende Vapi-gesprekken verschijnen hier automatisch'
-      );
-      updateGrid(
-        'recentGrid', recent,
-        '📋', 'Nog geen beëindigde gesprekken',
-        'Afgeronde gesprekken worden hier bewaard'
-      );
-
-      document.getElementById('lastRefresh').textContent =
-        'Bijgewerkt: ' + new Date().toLocaleTimeString('nl-NL');
-
-    } catch (err) {
-      setConnStatus('err');
-      console.error('[dashboard] Poll mislukt:', err.message);
-    }
-  }
-
-  // ── Start ─────────────────────────────────────────────────────────────
-
-  setConnStatus('wait');
-  poll();
-
-  const pollInterval = setInterval(poll, POLL_MS);
-  setInterval(tickDurations, 1000);
-
-  /* Pauzeer polling als het tabblad niet zichtbaar is */
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      clearInterval(pollInterval);
+      /* Ongewijzigd → laat staan */
     } else {
-      poll();
-      setInterval(poll, POLL_MS);
+      /* Nieuwe kaart */
+      const newCard = buildCard(call);
+      newCard.classList.add('is-new');
+
+      const cards = [...grid.querySelectorAll('.call-card')];
+      if (idx === 0 || cards.length === 0) {
+        grid.prepend(newCard);
+      } else if (idx >= cards.length) {
+        grid.append(newCard);
+      } else {
+        grid.insertBefore(newCard, cards[idx]);
+      }
     }
   });
+}
+
+// ── Recente gesprekken tabel bijwerken ────────────────────────────────
+
+function updateRecentTable(calls) {
+  const tbody = document.getElementById('recentTbody');
+  if (!tbody) return;
+
+  if (calls.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" class="text-center py-12 text-slate-500">
+          <span class="material-symbols-outlined text-4xl block mb-2 opacity-20">history</span>
+          <span class="text-sm">Nog geen beëindigde gesprekken</span>
+        </td>
+      </tr>`;
+    return;
+  }
+
+  tbody.innerHTML = calls.map(call => {
+    const lvl     = call.urgency?.level || 'groen';
+    const chip    = TABLE_CHIP[lvl] || TABLE_CHIP.groen;
+    const summary = (call.summary || call.urgency?.reason || '—').slice(0, 90);
+
+    return `
+      <tr class="bg-slate-900/40 hover:bg-slate-800/60 transition-colors border border-slate-800">
+        <td class="px-6 py-4 first:rounded-l-2xl font-medium text-slate-400 text-sm whitespace-nowrap">
+          ${fmtTime(call.endTime || call.lastUpdated)}
+        </td>
+        <td class="px-6 py-4">
+          <p class="font-bold text-slate-200 text-sm">${esc(call.callerName)}</p>
+          <p class="text-xs text-slate-400 mt-0.5 max-w-sm truncate">${esc(summary)}</p>
+        </td>
+        <td class="px-6 py-4 text-slate-400 text-sm whitespace-nowrap">
+          ${fmtDuur(call.startTime, call.endTime)}
+        </td>
+        <td class="px-6 py-4 last:rounded-r-2xl text-right">
+          <span class="px-3 py-1 ${chip.cls} text-[10px] font-black rounded-full border">${chip.label}</span>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+// ── Live duraties bijwerken (elke seconde) ────────────────────────────
+
+function tickDurations() {
+  document.querySelectorAll('.duration-live').forEach(el => {
+    const start = el.dataset.start;
+    if (start) el.textContent = fmtDuur(start);
+  });
+}
+
+// ── Statistieken bijwerken ────────────────────────────────────────────
+
+function updateStats(calls) {
+  const vandaag      = new Date().toDateString();
+  const vandaagCalls = calls.filter(c => new Date(c.startTime).toDateString() === vandaag);
+
+  const actief = calls.filter(c => c.status === 'active').length;
+  const rood   = calls.filter(c => c.urgency?.level === 'rood').length;
+  const oranje = calls.filter(c => c.urgency?.level === 'oranje').length;
+  const groen  = calls.filter(c => c.urgency?.level === 'groen').length;
+
+  document.getElementById('sActief').textContent  = actief;
+  document.getElementById('sVandaag').textContent = vandaagCalls.length;
+  document.getElementById('sRood').textContent    = rood;
+  document.getElementById('sOranje').textContent  = oranje;
+  document.getElementById('sGroen').textContent   = groen;
+}
+
+// ── Verbindingsstatus ─────────────────────────────────────────────────
+
+function setConnStatus(state) {
+  const labels = { ok: 'Verbonden', err: 'Verbindingsfout', wait: 'Verbinden…' };
+
+  ['connDot', 'connDotMobile'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.className = 'conn-dot ' + state;
+  });
+
+  const text = document.getElementById('connText');
+  if (text) text.textContent = labels[state] || '';
+}
+
+// ── Hoofd poll (elke 2 seconden) ──────────────────────────────────────
+
+async function poll() {
+  try {
+    const res = await fetch('/api/calls', {
+      cache:  'no-store',
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const calls = await res.json();
+    setConnStatus('ok');
+
+    /* Sorteer actieve gesprekken: rood eerst, daarna oranje, dan groen */
+    const urgOrd = { rood: 0, oranje: 1, groen: 2 };
+    const active = calls
+      .filter(c => c.status === 'active')
+      .sort((a, b) => {
+        const da = urgOrd[a.urgency?.level] ?? 2;
+        const db = urgOrd[b.urgency?.level] ?? 2;
+        return da !== db ? da - db : new Date(b.startTime) - new Date(a.startTime);
+      });
+
+    const recent = calls
+      .filter(c => c.status === 'ended')
+      .sort((a, b) => new Date(b.endTime || b.lastUpdated) - new Date(a.endTime || a.lastUpdated))
+      .slice(0, MAX_RECENT);
+
+    updateStats(calls);
+
+    document.getElementById('pilActief').textContent = active.length;
+    document.getElementById('pilRecent').textContent = recent.length;
+
+    updateGrid(
+      'activeGrid', active,
+      'phone_disabled', 'Geen actieve gesprekken',
+      'Inkomende Vapi-gesprekken verschijnen hier automatisch'
+    );
+    updateRecentTable(recent);
+
+    document.getElementById('lastRefresh').textContent =
+      'Bijgewerkt: ' + new Date().toLocaleTimeString('nl-NL');
+
+  } catch (err) {
+    setConnStatus('err');
+    console.error('[dashboard] Poll mislukt:', err.message);
+  }
+}
+
+// ── Start ─────────────────────────────────────────────────────────────
+
+setConnStatus('wait');
+poll();
+
+const pollInterval = setInterval(poll, POLL_MS);
+setInterval(tickDurations, 1000);
+
+/* Pauzeer polling als het tabblad niet zichtbaar is */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearInterval(pollInterval);
+  } else {
+    poll();
+    setInterval(poll, POLL_MS);
+  }
+});
 </script>
 
 </body>
