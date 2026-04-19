@@ -407,7 +407,7 @@ function buildCard(call) {
   const live   = call.status === 'active';
   const reason = call.urgency?.reason || 'Urgentie-analyse in verwerking…';
 
-  // Transcript: toon laatste 3 regels + live partieel fragment
+  // Transcript: live = alle regels groot, afgelopen = laatste 4 regels compact
   let transcriptHtml;
   const finishedLines = Array.isArray(call.transcript)
     ? call.transcript.filter(t => t && typeof t.text === 'string' && t.text.trim())
@@ -416,56 +416,64 @@ function buildCard(call) {
   const hasPartial  = live && call.transcriptPartial && call.transcriptPartial.trim();
 
   if (hasFinished || hasPartial) {
-    const rows = hasFinished
-      ? finishedLines.slice(-3).map(t => `
-          <div class="flex gap-2 items-start">
-            <span class="text-[10px] font-bold uppercase ${t.role === 'user' ? 'text-slate-500' : 'text-primary'} mt-0.5 w-14 shrink-0">
+    const displayLines = live ? finishedLines : finishedLines.slice(-4);
+    const textSize     = live ? 'text-base leading-relaxed' : 'text-xs leading-relaxed';
+    const maxH         = live ? 'max-h-64' : 'max-h-32';
+    const rows = displayLines.map(t => `
+          <div class="flex gap-3 items-start">
+            <span class="text-[10px] font-bold uppercase ${t.role === 'user' ? 'text-slate-500' : 'text-primary'} mt-1 w-16 shrink-0">
               ${t.role === 'user' ? 'Beller' : 'Assist.'}
             </span>
-            <p class="text-xs text-slate-300 leading-relaxed">${esc(t.text)}</p>
-          </div>`).join('')
-      : '';
+            <p class="${textSize} text-slate-200">${esc(t.text)}</p>
+          </div>`).join('');
     const partialRow = hasPartial ? `
-          <div class="flex gap-2 items-start opacity-60">
-            <span class="text-[10px] font-bold uppercase text-slate-500 mt-0.5 w-14 shrink-0">Live…</span>
-            <p class="text-xs text-slate-400 leading-relaxed italic">${esc(call.transcriptPartial)}</p>
+          <div class="flex gap-3 items-start opacity-70">
+            <span class="text-[10px] font-bold uppercase text-amber-400 mt-1 w-16 shrink-0">Live…</span>
+            <p class="${textSize} text-slate-300 italic">${esc(call.transcriptPartial)}</p>
           </div>` : '';
     transcriptHtml = `
-      <div class="transcript-scroll bg-slate-950/60 rounded-2xl p-3 space-y-2 max-h-28 overflow-y-auto">
+      <div class="transcript-scroll bg-slate-950/60 rounded-2xl p-4 space-y-3 ${maxH} overflow-y-auto">
         ${rows}${partialRow}
       </div>`;
   } else if (call.transcriptRaw) {
     transcriptHtml = `
-      <div class="transcript-scroll bg-slate-950/60 rounded-2xl p-3 max-h-28 overflow-y-auto">
-        <pre class="text-xs text-slate-400 whitespace-pre-wrap font-sans leading-relaxed">${esc(call.transcriptRaw.slice(0,300))}</pre>
+      <div class="transcript-scroll bg-slate-950/60 rounded-2xl p-4 max-h-32 overflow-y-auto">
+        <pre class="text-sm text-slate-400 whitespace-pre-wrap font-sans leading-relaxed">${esc(call.transcriptRaw.slice(0,400))}</pre>
       </div>`;
   } else {
-    transcriptHtml = `<p class="text-xs text-slate-500 italic py-1">Wachten op transcriptie…</p>`;
+    transcriptHtml = `<p class="text-sm text-slate-500 italic py-2">Wachten op transcriptie…</p>`;
   }
 
+  // Toon telefoonnummer als primaire naam als callerName onbekend is
+  const displayName = (call.callerName && call.callerName !== 'Onbekende beller')
+    ? call.callerName
+    : (call.phoneNumber && call.phoneNumber !== 'Onbekend' ? fmtTel(call.phoneNumber) : 'Onbekende beller');
+
   const card = document.createElement('div');
-  card.className      = 'call-card group bg-slate-800/40 p-1 rounded-[2.5rem] transition-all duration-300 hover:bg-slate-800/60 border border-slate-700/50 hover:border-slate-600';
+  card.className = live
+    ? 'call-card group bg-slate-800/60 p-1 rounded-[2.5rem] transition-all duration-300 border-2 border-primary/40 shadow-xl shadow-primary/10'
+    : 'call-card group bg-slate-800/40 p-1 rounded-[2.5rem] transition-all duration-300 hover:bg-slate-800/60 border border-slate-700/50 hover:border-slate-600';
   card.dataset.id          = call.id;
   card.dataset.lastUpdated = call.lastUpdated;
 
   card.innerHTML = `
-    <div class="p-6 rounded-[2.25rem] h-full flex flex-col">
+    <div class="p-6 rounded-[2.25rem] h-full flex flex-col ${live ? 'min-h-[320px]' : ''}">
 
       <!-- Kaartkop: beller + badge -->
       <div class="flex justify-between items-start mb-5">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-full ${cfg.iconBg} flex items-center justify-center text-white shrink-0">
-            <span class="material-symbols-outlined text-xl">${cfg.icon}</span>
+          <div class="${live ? 'w-14 h-14' : 'w-10 h-10'} rounded-full ${cfg.iconBg} flex items-center justify-center text-white shrink-0">
+            <span class="material-symbols-outlined ${live ? 'text-2xl' : 'text-xl'}">${cfg.icon}</span>
           </div>
           <div>
-            <h3 class="font-bold text-sm text-slate-100">${esc(call.callerName)}</h3>
-            <p class="text-[10px] ${cfg.timeColor} font-bold uppercase tracking-tighter">
-              ${timeSince(call.startTime)} · ${esc(fmtTel(call.phoneNumber))}
+            <h3 class="${live ? 'font-black text-xl' : 'font-bold text-sm'} text-slate-100">${esc(displayName)}</h3>
+            <p class="${live ? 'text-sm' : 'text-[10px]'} ${cfg.timeColor} font-bold uppercase tracking-tighter">
+              ${timeSince(call.startTime)}${live && call.phoneNumber && call.phoneNumber !== 'Onbekend' ? ' · ' + esc(fmtTel(call.phoneNumber)) : ''}
             </p>
           </div>
         </div>
-        <span class="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border border-white/20 shrink-0 text-white">
-          ${live ? 'Live' : fmtTime(call.endTime)}
+        <span class="${live ? 'bg-primary/20 text-primary border-primary/40 px-4 py-2 text-sm animate-pulse' : 'bg-white/10 text-white border-white/20 px-3 py-1 text-xs'} backdrop-blur-md rounded-full font-bold uppercase tracking-widest border shrink-0">
+          ${live ? '● Live' : fmtTime(call.endTime)}
         </span>
       </div>
 

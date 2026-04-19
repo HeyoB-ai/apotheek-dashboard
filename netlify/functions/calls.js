@@ -1,16 +1,18 @@
 /**
  * Calls API Endpoint
- * Haalt gesprekken op direct via de Vapi API.
- * Verrijkt met urgentie-data uit Netlify Blobs (optioneel).
+ * Haalt gesprekken op via Vapi API en verrijkt met live data uit Blobs:
+ * - live transcript (tijdens gesprek)
+ * - urgentie (Claude AI analyse)
+ * - Nederlandse samenvatting
  */
 
 const { getStore } = require('@netlify/blobs');
 
-const VAPI_BASE    = 'https://api.vapi.ai';
-const STORE_NAME   = 'apotheek-urgency';
-const MAX_CALLS    = 20;
+const VAPI_BASE  = 'https://api.vapi.ai';
+const STORE_NAME = 'apotheek-enrichment';
+const MAX_CALLS  = 20;
 
-// ─── Blobs store (best-effort) ────────────────────────────────────────────────
+// ─── Blobs store ──────────────────────────────────────────────────────────────
 
 function getStoreWithContext() {
   const siteID = process.env.NETLIFY_SITE_ID;
@@ -54,7 +56,7 @@ function parseVapiMessages(messages) {
   return messages
     .filter(m => (m.role === 'user' || m.role === 'bot' || m.role === 'assistant') && m.message?.trim())
     .map(m => ({
-      role: (m.role === 'bot') ? 'assistant' : m.role,
+      role: m.role === 'bot' ? 'assistant' : m.role,
       text: m.message.trim(),
       time: m.time ?? null
     }));
@@ -64,7 +66,6 @@ function parseVapiMessages(messages) {
 
 exports.handler = async (event) => {
   console.log('VAPI_KEY aanwezig:', !!process.env.VAPI_KEY);
-  console.log('Node versie:', process.version);
 
   const headers = {
     'Content-Type': 'application/json',
@@ -100,47 +101,72 @@ exports.handler = async (event) => {
 
   if (!Array.isArray(vapiCalls)) vapiCalls = [];
 
-  // ── Urgentie ophalen uit Blobs (optioneel) ────────────────────────────────
-  const urgencyMap = {};
+  // ── Verrijkingsdata ophalen uit Blobs ─────────────────────────────────────
+  const enrichmentMap = {};
   try {
     const store = getStoreWithContext();
     const { blobs } = await store.list();
     await Promise.all(
       blobs.map(async blob => {
         const data = await store.get(blob.key, { type: 'json' }).catch(() => null);
-        if (data?.urgency) urgencyMap[blob.key] = data.urgency;
+        if (data) enrichmentMap[blob.key] = data;
       })
     );
-    console.log('[calls] Urgentie geladen voor', Object.keys(urgencyMap).length, 'gesprekken');
+    console.log('[calls] Verrijking geladen voor', Object.keys(enrichmentMap).length, 'gesprekken');
   } catch (err) {
-    console.warn('[calls] Blobs niet beschikbaar, gebruik keyword-fallback:', err.message);
+    console.warn('[calls] Blobs niet beschikbaar:', err.message);
   }
 
-  // ── Vapi data mappen naar dashboard-formaat ────────────────────────────────
+  // ── Vapi data mappen en verrijken ─────────────────────────────────────────
   const calls = vapiCalls.map(call => {
-    const transcript = parseVapiMessages(call.messages);
-    const transcriptText = transcript.map(t => t.text).join(' ');
+    const enrichment = enrichmentMap[call.id] || {};
+    const isActive   = call.status === 'in-progress';
 
-    const urgency = urgencyMap[call.id]
-      || keywordUrgency(transcriptText);
+    // Transcript: voor actieve gesprekken gebruik live Blobs-data, anders Vapi
+    const vapiTranscript = parseVapiMessages(call.messages);
+    const liveTranscript = Array.isArray(enrichment.liveTranscript) ? enrichment.liveTranscript : [];
+    const transcript     = (isActive && liveTranscript.length > 0)
+      ? liveTranscript
+      : (vapiTranscript.length > 0 ? vapiTranscript : liveTranscript);
+
+    // Transcriptie partieel (live typing indicator)
+    const transcriptPartial = isActive ? (enrichment.transcriptPartial || '') : '';
+
+    // Urgentie: Blobs (Claude) → keyword fallback
+    const transcriptText = transcript.map(t => t.text).join(' ');
+    const urgency = enrichment.urgency || keywordUrgency(transcriptText);
+
+    // Samenvatting: Nederlandse versie heeft prioriteit over Vapi's Engelstalige
+    const summary = enrichment.summaryNl || call.summary || null;
+
+    // Telefoonnummer: Vapi → Blobs fallback
+    const phoneNumber = call.customer?.number
+      || call.phoneNumber
+      || enrichment.phoneNumber
+      || 'Onbekend';
+
+    // Naam: Vapi → Blobs fallback → telefoonnummer als identifier
+    const callerName = (call.customer?.name && call.customer.name !== 'Onbekende beller')
+      ? call.customer.name
+      : (enrichment.callerName || 'Onbekende beller');
 
     return {
       id:               call.id,
-      status:           call.status === 'in-progress' ? 'active' : 'ended',
-      phoneNumber:      call.customer?.number || call.phoneNumber || 'Onbekend',
-      callerName:       call.customer?.name   || 'Onbekende beller',
+      status:           isActive ? 'active' : 'ended',
+      phoneNumber,
+      callerName,
       startTime:        call.startedAt || call.createdAt,
       endTime:          call.endedAt   || null,
       transcript,
-      transcriptPartial: '',
+      transcriptPartial,
       transcriptRaw:    typeof call.transcript === 'string' ? call.transcript : null,
       urgency,
-      summary:          call.summary    || null,
-      lastUpdated:      call.updatedAt  || call.endedAt || call.startedAt || call.createdAt
+      summary,
+      lastUpdated:      enrichment.updatedAt || call.updatedAt || call.endedAt || call.startedAt || call.createdAt
     };
   });
 
-  // Sorteer: actief eerst, dan op starttijd (nieuwste boven)
+  // Actieve gesprekken bovenaan, dan nieuwste eerst
   calls.sort((a, b) => {
     if (a.status === 'active' && b.status !== 'active') return -1;
     if (b.status === 'active' && a.status !== 'active') return  1;
