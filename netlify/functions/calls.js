@@ -190,6 +190,8 @@ exports.handler = async (event) => {
       transcriptRaw:    typeof call.transcript === 'string' ? call.transcript : null,
       urgency,
       summary,
+      geslacht:         meta.geslacht  || 'ONBEKEND',
+      leeftijd:         meta.leeftijd  || 'ONBEKEND',
       lastUpdated:      meta.updatedAt || call.updatedAt || call.endedAt || call.startedAt || call.createdAt
     };
   });

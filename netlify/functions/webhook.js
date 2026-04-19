@@ -272,7 +272,7 @@ exports.handler = async (event) => {
           transcript = lines;
           await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
 
-          // Claude urgentie-analyse op live gesprek
+          // Claude urgentie + beller-profiel analyse
           const gesprek = lines
             .map(l => `${l.role === 'user' ? 'Beller' : 'Assistent'}: ${l.text}`)
             .join('\n');
@@ -283,7 +283,7 @@ exports.handler = async (event) => {
             try {
               const client = new Anthropic({ apiKey });
               const response = await client.messages.create({
-                model: 'claude-haiku-4-5-20251001', max_tokens: 10, temperature: 0,
+                model: 'claude-haiku-4-5-20251001', max_tokens: 80, temperature: 0,
                 messages: [{
                   role: 'user',
                   content: `Je bent een Nederlandse apotheek triage assistent.
@@ -295,25 +295,44 @@ ORANJE alleen als: beller heeft actieve pijn/klachten, vraagt advies over eigen 
 
 GROEN voor alles anders: informatievragen, openingstijden, recepten, algemene medicatie-informatie, prijsvragen.
 
+Analyseer ook wie de beller is op basis van het gesprek.
+Bepaal:
+- Geslacht: MAN, VROUW of ONBEKEND
+- Leeftijd: KIND (onder 16), VOLWASSENE, SENIOR (boven 65) of ONBEKEND
+
+Baseer dit op taalgebruik, stemgebruik beschrijvingen in de transcriptie en context.
+
 Gesprek:
 ${gesprek}
 
-Antwoord met alleen één woord: ROOD, ORANJE of GROEN`
+Antwoord uitsluitend met JSON (geen uitleg):
+{"urgentie":"GROEN","geslacht":"ONBEKEND","leeftijd":"ONBEKEND"}`
                 }]
               });
-              const word = response.content[0].text.trim().toLowerCase();
-              if (['rood', 'oranje', 'groen'].includes(word)) {
-                const claudeUrg = {
-                  level: word,
-                  reason: word === 'rood' ? 'Medische nood gedetecteerd.'
-                        : word === 'oranje' ? 'Actieve klachten gedetecteerd.'
-                        : 'Routinevraag.'
-                };
-                newUrg = best(claudeUrg, currentUrg);
+
+              const raw = response.content[0].text.trim();
+              const match = raw.match(/\{[\s\S]*?\}/);
+              if (match) {
+                const parsed = JSON.parse(match[0]);
+                const urg = (parsed.urgentie || '').toLowerCase();
+                if (['rood', 'oranje', 'groen'].includes(urg)) {
+                  const claudeUrg = {
+                    level: urg,
+                    reason: urg === 'rood' ? 'Medische nood gedetecteerd.'
+                          : urg === 'oranje' ? 'Actieve klachten gedetecteerd.'
+                          : 'Routinevraag.'
+                  };
+                  newUrg = best(claudeUrg, currentUrg);
+                }
+                // Sla geslacht/leeftijd op in meta
+                const geslacht = (parsed.geslacht || 'ONBEKEND').toUpperCase();
+                const leeftijd = (parsed.leeftijd || 'ONBEKEND').toUpperCase();
+                if (['MAN','VROUW','ONBEKEND'].includes(geslacht)) meta.geslacht = geslacht;
+                if (['KIND','VOLWASSENE','SENIOR','ONBEKEND'].includes(leeftijd)) meta.leeftijd = leeftijd;
+                console.log(`[webhook] profiel: ${geslacht} / ${leeftijd}`);
               }
             } catch (err) {
               console.error('[webhook] Claude live analyse mislukt:', err.message);
-              // Keyword als vangnet
               const userText = lines.filter(l => l.role === 'user').map(l => l.text).join(' ');
               const kwUrg = keywordUrgency(userText);
               if (kwUrg) newUrg = best(kwUrg, currentUrg);
