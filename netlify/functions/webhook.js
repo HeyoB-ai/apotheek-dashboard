@@ -312,6 +312,8 @@ BELANGRIJK:
 - Het woord "pijn" in een informatievraag = GROEN
 - Alleen als beller ZELF pijn ervaart = ORANJE
 - Alleen bij levensgevaar = ROOD
+- Als beller alleen vraagt om doorverbinding of een terugbelverzoek zonder medische klachten te noemen: altijd GROEN
+- Alleen ROOD bij expliciete levensbedreigende situaties, niet bij twijfel
 
 Analyseer ook wie de beller is op basis van taalgebruik en woordkeuze.
 Bepaal:
