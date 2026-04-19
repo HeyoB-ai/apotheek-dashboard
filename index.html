@@ -739,11 +739,12 @@ function switchView(view) {
   });
 }
 
-// ── Transcript auto-scroll naar beneden ──────────────────────────────
+// ── Transcript auto-scroll naar beneden (alleen als gebruiker al onderaan zit) ──
 
 function autoScrollTranscripts() {
   document.querySelectorAll('.transcript-scroll').forEach(el => {
-    el.scrollTop = el.scrollHeight;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    if (atBottom) el.scrollTop = el.scrollHeight;
   });
 }
 
