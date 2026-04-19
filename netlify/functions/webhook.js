@@ -71,17 +71,15 @@ async function analyzeUrgency(transcript, currentLevel) {
       model: 'claude-haiku-4-5-20251001', max_tokens: 120, temperature: 0,
       messages: [{
         role: 'user',
-        content: `Je bent een Nederlandse apotheek assistent. Geef ALLE analyses, samenvattingen en urgentiebepaling uitsluitend in het Nederlands.
-
-Je bent urgentie-analist voor een Nederlandse apotheek. LEVENS REDDEN heeft prioriteit.
+        content: `Je bent een assistent voor Apotheek De Kroon. Analyseer dit gesprek en geef een samenvatting in het Nederlands van maximaal 2 zinnen. Bepaal de urgentie: ROOD, ORANJE of GROEN. Antwoord ALLEEN in het Nederlands.
 
 GESPREK:
 ${gesprek}
 
-URGENTIENIVEAUS (wees STRENG — bij twijfel rood of oranje, NOOIT groen als iemand klachten heeft):
+URGENTIE (wees STRENG — bij twijfel rood of oranje, NOOIT groen als iemand klachten heeft):
 - rood   → medische nood, pijn, angst, "ik ga dood", spoed, allergie, overdosis, bewusteloos, ademnood, eerste hulp, ambulance, pijn op de borst
-- oranje → complexe vraag, onzekerheid, bijwerking, wisselwerking, dringende medicatievraag, misselijkheid, duizeligheid, herhaalrecept met complicatie
-- groen  → ALLEEN standaard routinevraag: openingstijden, prijs, eenvoudig herhaalrecept
+- oranje → complexe vraag, bijwerking, wisselwerking, dringende medicatievraag, misselijkheid, duizeligheid, herhaalrecept met complicatie
+- groen  → ALLEEN routinevraag: openingstijden, prijs, eenvoudig herhaalrecept
 
 Reageer ALLEEN met JSON in het Nederlands:
 {"level":"groen","reason":"Nederlandse omschrijving max 80 tekens"}`
