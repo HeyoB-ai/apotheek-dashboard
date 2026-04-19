@@ -54,7 +54,7 @@ exports.handler = async (event) => {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: 'Interne serverfout' })
+      body: JSON.stringify({ error: 'Interne serverfout', debug: error.message, stack: error.stack })
     };
   }
 };
