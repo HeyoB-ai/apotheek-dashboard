@@ -365,20 +365,17 @@ function bellerBadgesHtml(call) {
   const badges = [];
 
   // Naam
-  const naam = (call.callerName && call.callerName !== 'Onbekende beller') ? call.callerName : null;
-  if (naam) {
-    const voornaam = naam.split(' ')[0];
-    badges.push(`<span class="px-2 py-0.5 rounded-full bg-slate-700/70 text-slate-300 text-xs font-medium border border-slate-600/40">${esc(voornaam)}</span>`);
-  }
+  const naam = call.name || ((call.callerName && call.callerName !== 'Onbekende beller') ? call.callerName.split(' ')[0] : null);
+  if (naam) badges.push(`<span class="px-2 py-0.5 rounded-full bg-slate-700/70 text-slate-300 text-xs font-medium border border-slate-600/40">${esc(naam)}</span>`);
 
   // Geslacht
-  const g = call.geslacht || 'ONBEKEND';
-  if (g === 'MAN')   badges.push(`<span class="px-2 py-0.5 rounded-full bg-blue-900/50 text-blue-300 text-xs font-medium border border-blue-700/40">♂ Man</span>`);
-  if (g === 'VROUW') badges.push(`<span class="px-2 py-0.5 rounded-full bg-pink-900/50 text-pink-300 text-xs font-medium border border-pink-700/40">♀ Vrouw</span>`);
+  const g = (call.gender || '').toLowerCase();
+  if (g === 'man')   badges.push(`<span class="px-2 py-0.5 rounded-full bg-blue-900/50 text-blue-300 text-xs font-medium border border-blue-700/40">♂ Man</span>`);
+  if (g === 'vrouw') badges.push(`<span class="px-2 py-0.5 rounded-full bg-pink-900/50 text-pink-300 text-xs font-medium border border-pink-700/40">♀ Vrouw</span>`);
 
   // Leeftijd
-  const l = call.leeftijd || 'ONBEKEND';
-  const leeftijdLabel = { KIND: 'Kind', VOLWASSENE: 'Volwassene', SENIOR: 'Senior' }[l];
+  const l = (call.age_category || '').toLowerCase();
+  const leeftijdLabel = { kind: 'Kind', jongvolwassene: 'Jongvolwassene', volwassene: 'Volwassene', senior: 'Senior' }[l];
   if (leeftijdLabel) badges.push(`<span class="px-2 py-0.5 rounded-full bg-slate-700/70 text-slate-300 text-xs font-medium border border-slate-600/40">${leeftijdLabel}</span>`);
 
   return badges.length > 0
@@ -389,7 +386,7 @@ function bellerBadgesHtml(call) {
 // ── Kaartconfiguratie per urgentieniveau ──────────────────────────────
 
 const CARD_CFG = {
-  rood: {
+  urgent: {
     iconBg:      'bg-tertiary-container',
     icon:        'emergency',
     borderColor: 'border-tertiary',
@@ -399,7 +396,7 @@ const CARD_CFG = {
     chipLabel:   'URGENT',
     btnLabel:    'Behandel Nu'
   },
-  oranje: {
+  attention: {
     iconBg:      'bg-secondary-container',
     icon:        'priority_high',
     borderColor: 'border-secondary',
@@ -409,7 +406,7 @@ const CARD_CFG = {
     chipLabel:   'AANDACHT',
     btnLabel:    'Bekijk Melding'
   },
-  groen: {
+  routine: {
     iconBg:      'bg-primary-container',
     icon:        'chat',
     borderColor: 'border-primary',
@@ -422,9 +419,9 @@ const CARD_CFG = {
 };
 
 const TABLE_CHIP = {
-  rood:   { cls: 'bg-tertiary-container/30 text-tertiary-fixed-dim border-tertiary-container/50',    label: 'URGENT'      },
-  oranje: { cls: 'bg-secondary-container/30 text-secondary-fixed-dim border-secondary-container/50', label: 'AANDACHT'    },
-  groen:  { cls: 'bg-primary-container/30 text-primary-fixed border-primary-container/50',           label: 'AFGEHANDELD' }
+  urgent:    { cls: 'bg-tertiary-container/30 text-tertiary-fixed-dim border-tertiary-container/50',    label: 'URGENT'      },
+  attention: { cls: 'bg-secondary-container/30 text-secondary-fixed-dim border-secondary-container/50', label: 'AANDACHT'    },
+  routine:   { cls: 'bg-primary-container/30 text-primary-fixed border-primary-container/50',           label: 'AFGEHANDELD' }
 };
 
 // ── Hulpfuncties ──────────────────────────────────────────────────────
@@ -464,20 +461,20 @@ function fmtTel(num) {
 
 // ── Kaart HTML opbouwen ───────────────────────────────────────────────
 
-const URGENCY_BAR  = { rood: 'bg-red-600',    oranje: 'bg-orange-500', groen: 'bg-emerald-500' };
+const URGENCY_BAR  = { urgent: 'bg-red-600', attention: 'bg-orange-500', routine: 'bg-emerald-500' };
 const URGENCY_BADGE = {
-  rood:   'bg-red-600/20 text-red-400 border-red-600/40',
-  oranje: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
-  groen:  'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+  urgent:    'bg-red-600/20 text-red-400 border-red-600/40',
+  attention: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+  routine:   'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
 };
 const URGENCY_LABEL = {
-  rood:   'URGENT — Nu actie vereist',
-  oranje: 'AANDACHT — Binnenkort actie',
-  groen:  'NORMAAL — Geen urgentie'
+  urgent:    'URGENT — Nu actie vereist',
+  attention: 'AANDACHT — Opvolging vereist',
+  routine:   'NORMAAL — Geen urgentie'
 };
 
 function buildCard(call) {
-  const lvl  = (call.urgency?.level in CARD_CFG) ? call.urgency.level : 'groen';
+  const lvl  = (call.urgency?.level in CARD_CFG) ? call.urgency.level : 'routine';
   const cfg  = CARD_CFG[lvl];
   const live = call.status === 'active';
 
@@ -656,11 +653,11 @@ function updateRecentTable(calls) {
   window._recentCalls = calls;
 
   tbody.innerHTML = calls.map((call, idx) => {
-    const lvl     = call.urgency?.level || 'groen';
-    const chip    = TABLE_CHIP[lvl] || TABLE_CHIP.groen;
+    const lvl     = call.urgency?.level || 'routine';
+    const chip    = TABLE_CHIP[lvl] || TABLE_CHIP.routine;
     const phone   = (call.phoneNumber && call.phoneNumber !== 'Onbekend') ? fmtTel(call.phoneNumber) : 'Onbekend';
     const summary = (call.summary || call.urgency?.reason || '—').slice(0, 90);
-    const barColor = { rood: '#dc2626', oranje: '#f97316', groen: '#10b981' }[lvl] || '#10b981';
+    const barColor = { urgent: '#dc2626', attention: '#f97316', routine: '#10b981' }[lvl] || '#10b981';
 
     return `
       <tr class="bg-slate-900/40 hover:bg-slate-800/60 transition-colors cursor-pointer border border-slate-800"
@@ -688,23 +685,23 @@ function updateRecentTable(calls) {
 
 // ── Gesprek detail modal ──────────────────────────────────────────────
 
-const URGENCY_BAR_COLOR  = { rood: '#dc2626', oranje: '#f97316', groen: '#10b981' };
+const URGENCY_BAR_COLOR  = { urgent: '#dc2626', attention: '#f97316', routine: '#10b981' };
 const URGENCY_BADGE_MODAL = {
-  rood:   'bg-red-600/20 text-red-400 border-red-600/40',
-  oranje: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
-  groen:  'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+  urgent:    'bg-red-600/20 text-red-400 border-red-600/40',
+  attention: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+  routine:   'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
 };
 const URGENCY_LABEL_MODAL = {
-  rood:   'URGENT — Nu actie vereist',
-  oranje: 'AANDACHT — Binnenkort actie',
-  groen:  'NORMAAL — Geen urgentie'
+  urgent:    'URGENT — Nu actie vereist',
+  attention: 'AANDACHT — Opvolging vereist',
+  routine:   'NORMAAL — Geen urgentie'
 };
 
 function openModal(idx) {
   const call = (window._recentCalls || [])[idx];
   if (!call) return;
 
-  const lvl   = call.urgency?.level || 'groen';
+  const lvl   = call.urgency?.level || 'routine';
   const phone = (call.phoneNumber && call.phoneNumber !== 'Onbekend')
     ? fmtTel(call.phoneNumber) : 'Onbekend nummer';
 
@@ -806,10 +803,10 @@ function updateStats(calls) {
   const vandaagCalls = calls.filter(c => new Date(c.startTime).toDateString() === vandaag);
 
   const actief      = calls.filter(c => c.status === 'active').length;
-  const rood        = calls.filter(c => c.urgency?.level === 'rood').length;
-  const oranje      = calls.filter(c => c.urgency?.level === 'oranje').length;
-  const groen       = calls.filter(c => c.urgency?.level === 'groen').length;
-  const terugbelCalls = calls.filter(c => c.terugbelverzoek === true);
+  const rood        = calls.filter(c => c.urgency?.level === 'urgent').length;
+  const oranje      = calls.filter(c => c.urgency?.level === 'attention').length;
+  const groen       = calls.filter(c => c.urgency?.level === 'routine').length;
+  const terugbelCalls = calls.filter(c => c.callback_requested === true);
 
   document.getElementById('sActief').textContent  = actief;
   document.getElementById('sVandaag').textContent = vandaagCalls.length;
@@ -824,7 +821,7 @@ function updateStats(calls) {
     lijst.innerHTML = terugbelCalls.map(c => {
       const phone   = (c.phoneNumber && c.phoneNumber !== 'Onbekend') ? fmtTel(c.phoneNumber) : 'Onbekend';
       const profiel = bellerProfielTekst(c.geslacht, c.leeftijd);
-      const reden   = c.terugbel_reden ? esc(c.terugbel_reden.slice(0, 60)) : '—';
+      const reden   = c.callback_reason ? esc(c.callback_reason.slice(0, 60)) : '—';
       return `
         <div class="bg-blue-800/40 rounded-xl px-3 py-2 text-xs">
           <p class="font-bold text-blue-100">${esc(phone)}<span class="font-normal text-blue-300">${esc(profiel)}</span></p>
@@ -865,7 +862,7 @@ async function poll() {
     setConnStatus('ok');
 
     /* Sorteer actieve gesprekken: rood eerst, daarna oranje, dan groen */
-    const urgOrd = { rood: 0, oranje: 1, groen: 2 };
+    const urgOrd = { urgent: 0, attention: 1, routine: 2 };
     const active = calls
       .filter(c => c.status === 'active')
       .sort((a, b) => {

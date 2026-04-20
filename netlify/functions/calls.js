@@ -10,7 +10,7 @@ const { Redis } = require('@upstash/redis');
 const VAPI_BASE    = 'https://api.vapi.ai';
 const MAX_CALLS    = 20;
 const CACHE_TTL_MS = 4000;
-const URGENCY_RANK = { groen: 0, oranje: 1, rood: 2 };
+const URGENCY_RANK = { routine: 0, attention: 1, urgent: 2 };
 
 // ─── Vapi response cache (voorkomt 429) ──────────────────────────────────────
 let vapiCache     = null;
@@ -27,28 +27,24 @@ function getRedis() {
 
 // ─── Keyword urgentie-check als fallback ─────────────────────────────────────
 
-const ROOD_KW = [
-  'dood','sterven','stervend','doodgaan','ga dood','ik ga dood','dacht dat ik dood',
-  'ambulance','noodgeval','spoed','spoedgeval','eerste hulp',
-  'anafylaxie','allergisch','allergische reactie',
-  'overdosis','teveel ingenomen','te veel ingenomen',
+const URGENT_KW = [
+  'dood','sterven','ambulance','noodgeval','spoed','eerste hulp',
+  'anafylaxie','allergische reactie','overdosis','teveel ingenomen',
   'bewusteloos','flauwgevallen','ademnood','kan niet ademen',
-  'hartaanval','beroerte','pijn op de borst','borst pijn','help me','crisis','ziekenhuis'
+  'hartaanval','beroerte','pijn op de borst','suïcide'
 ];
-const ORANJE_KW = [
-  'pijn','bijwerking','bijwerkingen','wisselwerking','dringend','urgent',
-  'zo snel mogelijk','ondraaglijk','heel slecht','erg slecht','niet goed',
-  'vergeten medicijn','vergeten medicatie','misselijk','overgeven',
-  'duizelig','duizeligheid','benauwdheid','benauwd'
+const ATTENTION_KW = [
+  'bijwerking','bijwerkingen','wisselwerking','misselijk','overgeven',
+  'duizelig','duizeligheid','benauwdheid','benauwd','vergeten medicijn'
 ];
 
 function keywordUrgency(text) {
   const t = (text || '').toLowerCase();
-  if (ROOD_KW.some(kw => t.includes(kw)))
-    return { level: 'rood',   reason: 'Noodtermen gedetecteerd — directe actie vereist.' };
-  if (ORANJE_KW.some(kw => t.includes(kw)))
-    return { level: 'oranje', reason: 'Urgente termen gedetecteerd — binnenkort actie vereist.' };
-  return { level: 'groen',  reason: 'Geen urgente termen gevonden.' };
+  if (URGENT_KW.some(kw => t.includes(kw)))
+    return { level: 'urgent',    reason: 'Noodtermen gedetecteerd — directe actie vereist.' };
+  if (ATTENTION_KW.some(kw => t.includes(kw)))
+    return { level: 'attention', reason: 'Urgente termen gedetecteerd — opvolging vereist.' };
+  return { level: 'routine', reason: 'Geen urgente termen gevonden.' };
 }
 
 function bestUrgency(a, b) {
@@ -176,13 +172,21 @@ exports.handler = async (event) => {
 
     const transcriptPartial = isActive ? (meta.transcriptPartial || '') : '';
     const summary = meta.summaryNl || meta.summary || null;
-    console.log(`[calls] ${call.id.slice(0,8)} meta:`, meta.geslacht || 'ONBEKEND', meta.leeftijd || 'ONBEKEND');
+
+    const gender       = meta.gender       || 'onbekend';
+    const name         = meta.name         || null;
+    const age_category = meta.age_category || 'onbekend';
+    const callback_requested = meta.callback_requested || false;
+    const callback_reason    = meta.callback_reason    || null;
+    const topics             = meta.topics             || [];
+
+    console.log(`[calls] ${call.id.slice(0,8)} gender=${gender} name=${name} age=${age_category} callback=${callback_requested}`);
 
     return {
       id:               call.id,
       status:           isActive ? 'active' : 'ended',
       phoneNumber,
-      callerName,
+      callerName:       name || callerName,
       startTime:        call.startedAt || call.createdAt,
       endTime:          call.endedAt   || null,
       transcript,
@@ -190,10 +194,12 @@ exports.handler = async (event) => {
       transcriptRaw:    typeof call.transcript === 'string' ? call.transcript : null,
       urgency,
       summary,
-      geslacht:         meta.geslacht        || 'ONBEKEND',
-      leeftijd:         meta.leeftijd        || 'ONBEKEND',
-      terugbelverzoek:  meta.terugbelverzoek || false,
-      terugbel_reden:   meta.terugbel_reden  || '',
+      gender,
+      name,
+      age_category,
+      callback_requested,
+      callback_reason,
+      topics,
       lastUpdated:      meta.updatedAt || call.updatedAt || call.endedAt || call.startedAt || call.createdAt
     };
   });
@@ -202,7 +208,7 @@ exports.handler = async (event) => {
   calls.sort((a, b) => {
     if (a.status === 'active' && b.status !== 'active') return -1;
     if (b.status === 'active' && a.status !== 'active') return  1;
-    const urgOrd = { rood: 0, oranje: 1, groen: 2 };
+    const urgOrd = { urgent: 0, attention: 1, routine: 2 };
     const da = urgOrd[a.urgency?.level] ?? 2;
     const db = urgOrd[b.urgency?.level] ?? 2;
     if (da !== db) return da - db;

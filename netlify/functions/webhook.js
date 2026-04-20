@@ -1,22 +1,21 @@
 /**
  * Vapi Webhook
- * - Slaat transcript + urgentie op in Upstash Redis (TTL 1 uur)
- * - Claude urgentie-analyse in het Nederlands
+ * - Slaat transcript + analyse op in Upstash Redis (TTL 1 uur)
+ * - Gecombineerde Claude analyse: urgentie, profiel, samenvatting, topics
  * - Urgentie gaat alleen omhoog
- * - Logt elk Vapi event volledig
  */
 
-const Anthropic   = require('@anthropic-ai/sdk');
-const { Redis }   = require('@upstash/redis');
+const Anthropic  = require('@anthropic-ai/sdk');
+const { Redis }  = require('@upstash/redis');
 
-const REDIS_TTL   = 3600; // 1 uur
-const URGENCY_RANK = { groen: 0, oranje: 1, rood: 2 };
+const REDIS_TTL    = 3600;
+const URGENCY_RANK = { routine: 0, attention: 1, urgent: 2 };
 
 function best(a, b) {
   return (URGENCY_RANK[a?.level] ?? 0) >= (URGENCY_RANK[b?.level] ?? 0) ? a : b;
 }
 
-// ─── Redis client ──────────────────────────────────────────────────────────────
+// ─── Redis client ─────────────────────────────────────────────────────────────
 
 function getRedis() {
   const url   = process.env.UPSTASH_REDIS_REST_URL;
@@ -25,117 +24,143 @@ function getRedis() {
   return new Redis({ url, token });
 }
 
-// ─── Keyword veiligheidsnet ───────────────────────────────────────────────────
+// ─── Keyword veiligheidsnet (fallback zonder API) ─────────────────────────────
 
-const ROOD_KW = [
-  'dood','sterven','stervend','doodgaan','ga dood','ik ga dood','dacht dat ik dood',
+const URGENT_KW = [
+  'dood','sterven','stervend','doodgaan','ga dood','ik ga dood',
   'ambulance','noodgeval','spoed','spoedgeval','eerste hulp',
-  'anafylaxie','allergisch','allergische reactie',
-  'overdosis','teveel ingenomen','te veel ingenomen',
+  'anafylaxie','allergische reactie','overdosis','teveel ingenomen','te veel ingenomen',
   'bewusteloos','flauwgevallen','ademnood','kan niet ademen',
-  'hartaanval','beroerte','pijn op de borst','borst pijn','help me','crisis','ziekenhuis'
+  'hartaanval','beroerte','pijn op de borst','borst pijn','crisis','suïcide'
 ];
-const ORANJE_KW = [
-  'pijn','bijwerking','bijwerkingen','wisselwerking','dringend','urgent',
-  'zo snel mogelijk','ondraaglijk','heel slecht','erg slecht','niet goed',
-  'vergeten medicijn','vergeten medicatie','misselijk','overgeven',
-  'duizelig','duizeligheid','benauwdheid','benauwd'
+const ATTENTION_KW = [
+  'bijwerking','bijwerkingen','wisselwerking','misselijk','overgeven',
+  'duizelig','duizeligheid','benauwdheid','benauwd','vergeten medicijn','vergeten medicatie'
 ];
 
 function keywordUrgency(text) {
   const t = (text || '').toLowerCase();
-  if (ROOD_KW.some(kw => t.includes(kw)))
-    return { level: 'rood',   reason: 'Noodtermen gedetecteerd — directe actie vereist.' };
-  if (ORANJE_KW.some(kw => t.includes(kw)))
-    return { level: 'oranje', reason: 'Urgente termen gedetecteerd — binnenkort actie vereist.' };
+  if (URGENT_KW.some(kw => t.includes(kw)))
+    return { level: 'urgent',    reason: 'Noodtermen gedetecteerd — directe actie vereist.' };
+  if (ATTENTION_KW.some(kw => t.includes(kw)))
+    return { level: 'attention', reason: 'Urgente termen gedetecteerd — opvolging vereist.' };
   return null;
 }
 
-// ─── Claude urgentie-analyse (uitsluitend Nederlands) ────────────────────────
+// ─── Gecombineerde Claude analyse ─────────────────────────────────────────────
 
-async function analyzeUrgency(transcript, currentLevel) {
-  const fullText    = transcript.map(t => t.text || '').join(' ');
-  const quickResult = keywordUrgency(fullText);
+const ANALYSE_PROMPT = `Je bent een analyse-assistent voor Apotheek De Kroon. Je analyseert transcripties van telefoongesprekken die zijn afgehandeld door AI-telefoniste Lisa.
 
+Analyseer de onderstaande transcriptie en retourneer ALLEEN een JSON-object, zonder uitleg, zonder markdown, zonder backticks.
+
+Bepaal de volgende velden:
+
+1. urgency — Urgentieniveau van het gesprek:
+   - "urgent": levensbedreigende situaties, ernstige bijwerkingen, vergiftiging, bewusteloosheid, ademhalingsproblemen, hevige pijn, suïcidale gedachten
+   - "attention": de beller heeft een specifieke medische vraag voor de apotheker die opvolging vereist, onduidelijkheid over medicatie of dosering, milde bijwerkingen, verwarring over een voorschrift
+   - "routine": openingstijden, locatie, herhaalrecept aanvragen, algemene vragen, terugbelverzoeken zonder medische urgentie, doorverbindpogingen zonder specifieke medische vraag, gesprekken die volledig zijn afgerond zonder openstaande medische acties
+
+   Belangrijk: een terugbelverzoek is op zichzelf ALTIJD routine, tenzij de reden voor het terugbelverzoek medisch urgent of aandachtsvereisend is. Kies bij twijfel tussen attention en routine altijd voor routine in een apotheekcontext — niet elk gesprek hoeft opgevolgd te worden.
+
+2. urgency_reason — Één Nederlandse zin die uitlegt waarom dit urgentieniveau is gekozen.
+
+3. gender — Geslacht van de beller:
+   - Analyseer de transcriptie op voornamen (bijv. "met Ilse", "u spreekt met Jan", "goedemorgen met Maria")
+   - Gebruik alleen voornamen of expliciete voornaamwoorden om geslacht te bepalen — leid geslacht NOOIT af uit een achternaam
+   - Als er geen duidelijke voornaam of voornaamwoord beschikbaar is: retourneer altijd "onbekend"
+   - Vrouwennamen (voorbeelden): Ilse, Anna, Maria, Sophie, Emma, Lisa, Sarah, Julia, Laura, Femke, Noor, Lotte, Roos, Eva, Inge, Marianne, Petra, Sandra, Miriam, Fatima, Aicha, Yasmine
+   - Mannennamen (voorbeelden): Jan, Piet, Kees, Mohammed, Ahmed, Thomas, David, Mark, Peter, Robert, Erik, Hans, Willem, Henk, Joost, Bas, Tim, Lars, Daan, Sven
+   - Retourneer "vrouw", "man", of "onbekend"
+
+4. name — Voornaam van de beller als die zichzelf voorstelt, anders null.
+   - Let op zinnen zoals: "met [naam]", "u spreekt met [naam]", "goedemorgen/middag met [naam]", "mijn naam is [naam]"
+   - Retourneer alleen de voornaam (string), of null als niet detecteerbaar
+   - Sla achternamen op als null — gebruik achternamen nooit voor geslachtsdetectie
+
+5. age_category — Geschatte leeftijdscategorie op basis van taalgebruik, context en eventuele vermeldingen:
+   - "kind" (onder 18), "jongvolwassene" (18-35), "volwassene" (35-65), "senior" (65+), of "onbekend"
+
+6. callback_requested — Boolean: true als de beller heeft gevraagd teruggebeld te worden, of als Lisa heeft aangeboden terug te bellen en de beller akkoord ging. Anders false.
+
+7. callback_reason — Als callback_requested true is: één Nederlandse zin die de reden voor het terugbelverzoek beschrijft. Anders null.
+
+8. summary — Een Nederlandse samenvatting van het gesprek in maximaal twee zinnen. Feitelijk en neutraal.
+
+9. topics — Array van onderwerpen die aan bod kwamen. Kies uit: "openingstijden", "locatie", "herhaalrecept", "medicatie-informatie", "bijwerking", "spoed", "terugbelverzoek", "doorverbonden", "overig"
+
+Retourneer altijd dit exacte JSON-formaat:
+{"urgency":"routine","urgency_reason":"string","gender":"onbekend","name":null,"age_category":"onbekend","callback_requested":false,"callback_reason":null,"summary":"string","topics":[]}`;
+
+async function analyzeCall(transcript) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return best(quickResult, currentLevel) || { level: 'groen', reason: 'AI niet geconfigureerd.' };
+  if (!apiKey || !transcript || transcript.length === 0) return null;
 
   const gesprek = transcript
-    .map(t => `${t.role === 'user' ? 'Beller' : 'Assistent'}: ${t.text}`)
+    .map(t => `${t.role === 'user' ? 'Beller' : 'Lisa'}: ${t.text}`)
     .join('\n');
 
   try {
-    const client  = new Anthropic({ apiKey });
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001', max_tokens: 120, temperature: 0,
-      messages: [{
-        role: 'user',
-        content: `Je bent een assistent voor Apotheek De Kroon. Analyseer dit gesprek en geef een samenvatting in het Nederlands van maximaal 2 zinnen. Bepaal de urgentie: ROOD, ORANJE of GROEN. Antwoord ALLEEN in het Nederlands.
-
-GESPREK:
-${gesprek}
-
-URGENTIE (wees STRENG — bij twijfel rood of oranje, NOOIT groen als iemand klachten heeft):
-- rood   → medische nood, pijn, angst, "ik ga dood", spoed, allergie, overdosis, bewusteloos, ademnood, eerste hulp, ambulance, pijn op de borst
-- oranje → complexe vraag, bijwerking, wisselwerking, dringende medicatievraag, misselijkheid, duizeligheid, herhaalrecept met complicatie
-- groen  → ALLEEN routinevraag: openingstijden, prijs, eenvoudig herhaalrecept
-
-Reageer ALLEEN met JSON in het Nederlands:
-{"level":"groen","reason":"Nederlandse omschrijving max 80 tekens"}`
-      }]
+    const client   = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001', max_tokens: 400, temperature: 0,
+      messages: [{ role: 'user', content: `${ANALYSE_PROMPT}\n\nTranscriptie:\n${gesprek}` }]
     });
 
-    const match = message.content[0].text.trim().match(/\{[\s\S]*?\}/);
-    if (match) {
-      const parsed = JSON.parse(match[0]);
-      if (['rood','oranje','groen'].includes(parsed.level)) {
-        const claudeResult = { level: parsed.level, reason: parsed.reason || '' };
-        return best(best(claudeResult, quickResult), currentLevel);
-      }
-    }
+    const raw   = response.content[0].text.trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) { console.error('[webhook] Claude gaf geen JSON:', raw.slice(0, 200)); return null; }
+
+    const result = JSON.parse(match[0]);
+    console.log('[webhook] Claude analyse:', JSON.stringify(result));
+    return result;
   } catch (err) {
-    console.error('[webhook] Claude mislukt:', err.message);
-  }
-
-  return best(quickResult, currentLevel) || { level: 'oranje', reason: 'AI-analyse mislukt — voorzorgsmaatregel.' };
-}
-
-// ─── Nederlandse samenvatting genereren ──────────────────────────────────────
-
-async function generateDutchSummary(transcript) {
-  if (!transcript || transcript.length === 0) return null;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
-
-  const gesprek = transcript
-    .map(t => `${t.role === 'user' ? 'Beller' : 'Assistent'}: ${t.text}`)
-    .join('\n');
-
-  try {
-    const client  = new Anthropic({ apiKey });
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001', max_tokens: 200, temperature: 0,
-      messages: [{
-        role: 'user',
-        content: `Je bent een assistent voor Apotheek De Kroon in Nederland.
-Analyseer het volgende gesprek en geef:
-1. Een samenvatting in het Nederlands van 2-3 zinnen
-2. De urgentie: ROOD, ORANJE of GROEN
-
-REAGEER UITSLUITEND IN HET NEDERLANDS.
-Gebruik geen Engels in je antwoord.
-
-GESPREK:
-${gesprek}
-
-Geef je antwoord als doorlopende Nederlandse tekst (geen JSON). Begin direct met de samenvatting.`
-      }]
-    });
-    return message.content[0].text.trim();
-  } catch (err) {
-    console.error('[webhook] Samenvatting mislukt:', err.message);
+    console.error('[webhook] analyzeCall mislukt:', err.message);
     return null;
   }
+}
+
+// ─── Urgentie uit Claude-resultaat extraheren ─────────────────────────────────
+
+function urgencyFromResult(result, current) {
+  if (!result) return current;
+  const lvl = (result.urgency || '').toLowerCase();
+  if (!['urgent','attention','routine'].includes(lvl)) return current;
+  const claudeUrg = { level: lvl, reason: result.urgency_reason || '' };
+  return best(claudeUrg, current);
+}
+
+// ─── Meta bijwerken vanuit Claude-resultaat ───────────────────────────────────
+
+function applyResultToMeta(result, meta) {
+  if (!result) return;
+
+  // gender: alleen overschrijven als nieuwe waarde concreet is
+  const g = (result.gender || '').toLowerCase();
+  if (['man','vrouw'].includes(g)) meta.gender = g;
+  else if (!meta.gender) meta.gender = 'onbekend';
+
+  // name: alleen zetten als gevonden
+  if (result.name && typeof result.name === 'string') meta.name = result.name;
+
+  // age_category: alleen overschrijven als concreet
+  const a = (result.age_category || '').toLowerCase();
+  if (['kind','jongvolwassene','volwassene','senior'].includes(a)) meta.age_category = a;
+  else if (!meta.age_category) meta.age_category = 'onbekend';
+
+  // callback
+  if (result.callback_requested === true) {
+    meta.callback_requested = true;
+    meta.callback_reason    = result.callback_reason || null;
+  }
+
+  // summary + topics
+  if (result.summary)                    meta.summaryNl = result.summary;
+  if (Array.isArray(result.topics) && result.topics.length > 0) meta.topics = result.topics;
+
+  console.log('[webhook] meta profiel:', JSON.stringify({
+    gender: meta.gender, name: meta.name, age_category: meta.age_category,
+    callback_requested: meta.callback_requested
+  }));
 }
 
 // ─── Lambda handler ───────────────────────────────────────────────────────────
@@ -146,7 +171,6 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST')
     return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
 
-  // === DEBUG LOGGING ===
   console.log('=== WEBHOOK ONTVANGEN ===');
 
   let payload;
@@ -158,20 +182,15 @@ exports.handler = async (event) => {
   const call   = msg.call || {};
   const callId = call.id || msg.callId;
 
-  console.log('Event type:', type);
-  console.log('Call ID:', callId);
-  console.log('Transcript type:', msg.transcriptType || 'n.v.t.');
-  console.log('Transcript tekst:', (msg.transcript || '').slice(0, 100));
+  console.log('Event type:', type, '| Call ID:', callId);
 
   if (!callId)
     return { statusCode: 200, headers, body: JSON.stringify({ status: 'genegeerd', reden: 'Geen callId' }) };
 
-  // Redis initialiseren
   let redis;
   try { redis = getRedis(); }
   catch (err) {
     console.error('[webhook] Redis init mislukt:', err.message);
-    // Zonder Redis toch 200 teruggeven zodat Vapi niet blijft retrying
     return { statusCode: 200, headers, body: JSON.stringify({ status: 'ok', waarschuwing: err.message }) };
   }
 
@@ -179,12 +198,10 @@ exports.handler = async (event) => {
   const urgentieKey   = `urgentie-${callId}`;
   const metaKey       = `meta-${callId}`;
 
-  // Haal bestaande data op
-  let transcript   = (await redis.get(transcriptKey)) || [];
-  let currentUrg   = (await redis.get(urgentieKey))   || { level: 'groen', reason: 'Gesprek gestart.' };
-  let meta         = (await redis.get(metaKey))        || {};
+  let transcript = (await redis.get(transcriptKey)) || [];
+  let currentUrg = (await redis.get(urgentieKey))   || { level: 'routine', reason: 'Gesprek gestart.' };
+  let meta       = (await redis.get(metaKey))        || {};
 
-  // Telefoon + beller info
   const phoneNumber = call.customer?.number || call.customer?.phoneNumber || call.phoneNumber || null;
   const callerName  = call.customer?.name   || null;
   if (phoneNumber) meta.phoneNumber = phoneNumber;
@@ -201,29 +218,11 @@ exports.handler = async (event) => {
       await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
       break;
 
-    case 'transcript': {
-      const text = (msg.transcript || '').trim();
-      const role = msg.role || 'user';
-
-      if (msg.transcriptType === 'partial') {
-        meta.transcriptPartial = text;
-      } else if (msg.transcriptType === 'final' && text) {
-        transcript.push({ role, text, time: new Date().toISOString() });
-        meta.transcriptPartial = '';
-        await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
-
-        const urgency = await analyzeUrgency(transcript, currentUrg);
-        currentUrg    = urgency;
-        await redis.set(urgentieKey, urgency, { ex: REDIS_TTL });
-        console.log(`[webhook] transcript (${role}): "${text.slice(0,60)}" → ${urgency.level}`);
-      }
-      break;
-    }
-
     case 'call.ended':
     case 'end-of-call-report': {
       meta.status = 'ended';
       meta.transcriptPartial = '';
+
       if (msg.messages && Array.isArray(msg.messages)) {
         const finalLines = msg.messages
           .filter(m => (m.role === 'user' || m.role === 'bot' || m.role === 'assistant') && m.message?.trim())
@@ -232,41 +231,20 @@ exports.handler = async (event) => {
       }
       await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
 
-      // Urgentie via Claude
-      const urgency = await analyzeUrgency(transcript, currentUrg);
-      currentUrg    = urgency;
-      await redis.set(urgentieKey, urgency, { ex: REDIS_TTL });
+      // Gecombineerde eindanalyse
+      const endResult = await analyzeCall(transcript);
+      currentUrg = urgencyFromResult(endResult, currentUrg);
+      applyResultToMeta(endResult, meta);
 
-      // Definitieve profielanalyse bij afsluiten (vult aan wat conversation-update miste)
-      const apiKeyEoc = process.env.ANTHROPIC_API_KEY;
-      if (apiKeyEoc && (!meta.geslacht || meta.geslacht === 'ONBEKEND' || !meta.leeftijd || meta.leeftijd === 'ONBEKEND')) {
-        try {
-          const bellerTekst = transcript.filter(t => t.role === 'user').map(t => t.text).join('\n');
-          if (bellerTekst.trim()) {
-            const eocClient = new Anthropic({ apiKey: apiKeyEoc });
-            const eocResp   = await eocClient.messages.create({
-              model: 'claude-haiku-4-5-20251001', max_tokens: 60, temperature: 0,
-              messages: [{ role: 'user', content: `Bepaal het geslacht en de leeftijdscategorie van de beller op basis van deze berichten. Antwoord uitsluitend met JSON:\n{"geslacht":"MAN/VROUW/ONBEKEND","leeftijd":"KIND/VOLWASSENE/SENIOR/ONBEKEND"}\n\nBerichten:\n${bellerTekst}` }]
-            });
-            const eocMatch = eocResp.content[0].text.trim().match(/\{[\s\S]*?\}/);
-            if (eocMatch) {
-              const eocParsed = JSON.parse(eocMatch[0]);
-              const g = (eocParsed.geslacht || '').toUpperCase();
-              const l = (eocParsed.leeftijd || '').toUpperCase();
-              if (['MAN','VROUW'].includes(g)) meta.geslacht = g;
-              if (['KIND','VOLWASSENE','SENIOR'].includes(l)) meta.leeftijd = l;
-              console.log(`[webhook] end-of-call profiel: geslacht=${meta.geslacht} leeftijd=${meta.leeftijd}`);
-            }
-          }
-        } catch (err) {
-          console.error('[webhook] Einde-profiel mislukt:', err.message);
-        }
+      // Keyword fallback als Claude niet beschikbaar
+      if (!endResult) {
+        const fullText = transcript.map(t => t.text).join(' ');
+        const kwUrg = keywordUrgency(fullText);
+        if (kwUrg) currentUrg = best(kwUrg, currentUrg);
       }
 
-      // Genereer Nederlandse samenvatting (Vapi's summary is altijd Engels)
-      meta.summaryNl = await generateDutchSummary(transcript);
-      console.log('[webhook] NL samenvatting:', meta.summaryNl?.slice(0, 80));
-      console.log('[webhook] meta bij opslaan:', JSON.stringify({ geslacht: meta.geslacht, leeftijd: meta.leeftijd, terugbelverzoek: meta.terugbelverzoek }));
+      await redis.set(urgentieKey, currentUrg, { ex: REDIS_TTL });
+      console.log('[webhook] end-of-call urgentie:', currentUrg.level);
       break;
     }
 
@@ -275,9 +253,10 @@ exports.handler = async (event) => {
       if (msg.status === 'ended' || type === 'hang') {
         meta.status = 'ended';
         meta.transcriptPartial = '';
-        const urgency = await analyzeUrgency(transcript, currentUrg);
-        currentUrg    = urgency;
-        await redis.set(urgentieKey, urgency, { ex: REDIS_TTL });
+        const fullText = transcript.map(t => t.text).join(' ');
+        const kwUrg = keywordUrgency(fullText);
+        if (kwUrg) currentUrg = best(kwUrg, currentUrg);
+        await redis.set(urgentieKey, currentUrg, { ex: REDIS_TTL });
       }
       break;
 
@@ -299,112 +278,17 @@ exports.handler = async (event) => {
           transcript = lines;
           await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
 
-          // Claude urgentie + beller-profiel analyse — ALLEEN op beller-berichten
-          const bellerRegels = lines.filter(l => l.role === 'user');
-          const gesprek = bellerRegels.map(l => l.text).join('\n');
+          const liveResult = await analyzeCall(transcript);
+          currentUrg = urgencyFromResult(liveResult, currentUrg);
+          applyResultToMeta(liveResult, meta);
 
-          let newUrg = currentUrg;
-          const apiKey = process.env.ANTHROPIC_API_KEY;
-          if (apiKey) {
-            try {
-              const client = new Anthropic({ apiKey });
-              const response = await client.messages.create({
-                model: 'claude-haiku-4-5-20251001', max_tokens: 120, temperature: 0,
-                messages: [{
-                  role: 'user',
-                  content: `Je bent een Nederlandse apotheek triage assistent. Analyseer ALLEEN de berichten van de BELLER (niet van de assistent Lisa).
-
-ROOD - directe medische nood:
-- Beller zegt dat hij/zij doodgaat of in gevaar is
-- Bewusteloosheid, niet kunnen ademen
-- Hartklachten, pijn op de borst
-- Ernstige allergische reactie
-- Vergiftiging of overdosis
-- Ernstig ongeluk of bloeding
-
-ORANJE - aandacht vereist, geen directe nood:
-- Beller heeft zelf last van bijwerkingen NU
-- Beller vraagt advies over eigen actieve klachten
-- Medicatiefout die beller zelf heeft gemaakt
-- Beller is ongerust over eigen gezondheid
-- Beller heeft pijn maar geen levensgevaar
-
-GROEN - routinevraag, geen urgentie:
-- Vragen over werking of verschil tussen medicijnen
-- Openingstijden, locatie, recepten
-- Algemene informatie over medicijnen
-- Beller is niet zelf ziek
-
-BELANGRIJK:
-- Het woord "pijn" in een informatievraag = GROEN
-- Alleen als beller ZELF pijn ervaart = ORANJE
-- Alleen bij levensgevaar = ROOD
-- Als beller alleen vraagt om doorverbinding of een terugbelverzoek zonder medische klachten te noemen: altijd GROEN
-- Alleen ROOD bij expliciete levensbedreigende situaties, niet bij twijfel
-
-Analyseer ook wie de beller is op basis van taalgebruik en woordkeuze.
-Bepaal:
-- Geslacht: MAN, VROUW of ONBEKEND
-- Leeftijd: KIND (onder 16), VOLWASSENE, SENIOR (boven 65) of ONBEKEND
-
-Bepaal ook wie de beller is:
-- Geslacht: MAN als de beller expliciete mannelijke voornaamwoorden (hij/zijn/meneer) of een mannelijke voornaam gebruikt. VROUW als de beller expliciete vrouwelijke voornaamwoorden (zij/haar/mevrouw) of een vrouwelijke voornaam gebruikt. ONBEKEND als er geen duidelijke aanwijzingen zijn — gok NOOIT op basis van een achternaam.
-- Leeftijd: KIND (onder 16), VOLWASSENE, SENIOR (boven 65) of ONBEKEND op basis van taalgebruik en context.
-
-Bepaal ook of de beller een TERUGBELVERZOEK heeft gedaan:
-- terugbelverzoek: true als beller vraagt om teruggebeld te worden, zijn/haar nummer geeft, of vraagt of iemand terugbelt
-- terugbel_reden: één zin met de reden van het terugbelverzoek (leeg als geen terugbelverzoek)
-
-Beller-berichten (alleen de beller, niet de assistent):
-${gesprek}
-
-Antwoord uitsluitend met JSON (geen uitleg):
-{"urgentie":"GROEN","geslacht":"ONBEKEND","leeftijd":"ONBEKEND","terugbelverzoek":false,"terugbel_reden":""}`
-                }]
-              });
-
-              const raw = response.content[0].text.trim();
-              const match = raw.match(/\{[\s\S]*?\}/);
-              if (match) {
-                const parsed = JSON.parse(match[0]);
-                const urg = (parsed.urgentie || '').toLowerCase();
-                if (['rood', 'oranje', 'groen'].includes(urg)) {
-                  const claudeUrg = {
-                    level: urg,
-                    reason: urg === 'rood' ? 'Medische nood gedetecteerd.'
-                          : urg === 'oranje' ? 'Actieve klachten gedetecteerd.'
-                          : 'Routinevraag.'
-                  };
-                  newUrg = best(claudeUrg, currentUrg);
-                }
-                // Sla geslacht/leeftijd/terugbelverzoek op in meta
-                // Alleen overschrijven als nieuwe waarde beter is (niet ONBEKEND)
-                const geslacht = (parsed.geslacht || 'ONBEKEND').toUpperCase();
-                const leeftijd = (parsed.leeftijd || 'ONBEKEND').toUpperCase();
-                if (['MAN','VROUW'].includes(geslacht)) meta.geslacht = geslacht;
-                else if (!meta.geslacht) meta.geslacht = 'ONBEKEND';
-                if (['KIND','VOLWASSENE','SENIOR'].includes(leeftijd)) meta.leeftijd = leeftijd;
-                else if (!meta.leeftijd) meta.leeftijd = 'ONBEKEND';
-                if (parsed.terugbelverzoek === true) {
-                  meta.terugbelverzoek = true;
-                  meta.terugbel_reden  = parsed.terugbel_reden || '';
-                }
-                console.log('[webhook] Claude analyse resultaat:', JSON.stringify({ urgentie: parsed.urgentie, geslacht: parsed.geslacht, leeftijd: parsed.leeftijd, terugbelverzoek: parsed.terugbelverzoek }));
-                console.log(`[webhook] profiel opgeslagen: geslacht=${meta.geslacht} leeftijd=${meta.leeftijd} terugbel=${!!meta.terugbelverzoek}`);
-              }
-            } catch (err) {
-              console.error('[webhook] Claude live analyse mislukt:', err.message);
-              const userText = lines.filter(l => l.role === 'user').map(l => l.text).join(' ');
-              const kwUrg = keywordUrgency(userText);
-              if (kwUrg) newUrg = best(kwUrg, currentUrg);
-            }
-          } else {
+          // Keyword fallback
+          if (!liveResult) {
             const userText = lines.filter(l => l.role === 'user').map(l => l.text).join(' ');
             const kwUrg = keywordUrgency(userText);
-            if (kwUrg) newUrg = best(kwUrg, currentUrg);
+            if (kwUrg) currentUrg = best(kwUrg, currentUrg);
           }
 
-          currentUrg = newUrg;
           await redis.set(urgentieKey, currentUrg, { ex: REDIS_TTL });
           console.log(`[webhook] conversation-update: ${lines.length} regels, urgentie: ${currentUrg.level}`);
         }
