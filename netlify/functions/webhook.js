@@ -237,9 +237,36 @@ exports.handler = async (event) => {
       currentUrg    = urgency;
       await redis.set(urgentieKey, urgency, { ex: REDIS_TTL });
 
+      // Definitieve profielanalyse bij afsluiten (vult aan wat conversation-update miste)
+      const apiKeyEoc = process.env.ANTHROPIC_API_KEY;
+      if (apiKeyEoc && (!meta.geslacht || meta.geslacht === 'ONBEKEND' || !meta.leeftijd || meta.leeftijd === 'ONBEKEND')) {
+        try {
+          const bellerTekst = transcript.filter(t => t.role === 'user').map(t => t.text).join('\n');
+          if (bellerTekst.trim()) {
+            const eocClient = new Anthropic({ apiKey: apiKeyEoc });
+            const eocResp   = await eocClient.messages.create({
+              model: 'claude-haiku-4-5-20251001', max_tokens: 60, temperature: 0,
+              messages: [{ role: 'user', content: `Bepaal het geslacht en de leeftijdscategorie van de beller op basis van deze berichten. Antwoord uitsluitend met JSON:\n{"geslacht":"MAN/VROUW/ONBEKEND","leeftijd":"KIND/VOLWASSENE/SENIOR/ONBEKEND"}\n\nBerichten:\n${bellerTekst}` }]
+            });
+            const eocMatch = eocResp.content[0].text.trim().match(/\{[\s\S]*?\}/);
+            if (eocMatch) {
+              const eocParsed = JSON.parse(eocMatch[0]);
+              const g = (eocParsed.geslacht || '').toUpperCase();
+              const l = (eocParsed.leeftijd || '').toUpperCase();
+              if (['MAN','VROUW'].includes(g)) meta.geslacht = g;
+              if (['KIND','VOLWASSENE','SENIOR'].includes(l)) meta.leeftijd = l;
+              console.log(`[webhook] end-of-call profiel: geslacht=${meta.geslacht} leeftijd=${meta.leeftijd}`);
+            }
+          }
+        } catch (err) {
+          console.error('[webhook] Einde-profiel mislukt:', err.message);
+        }
+      }
+
       // Genereer Nederlandse samenvatting (Vapi's summary is altijd Engels)
       meta.summaryNl = await generateDutchSummary(transcript);
       console.log('[webhook] NL samenvatting:', meta.summaryNl?.slice(0, 80));
+      console.log('[webhook] meta bij opslaan:', JSON.stringify({ geslacht: meta.geslacht, leeftijd: meta.leeftijd, terugbelverzoek: meta.terugbelverzoek }));
       break;
     }
 
@@ -347,15 +374,18 @@ Antwoord uitsluitend met JSON (geen uitleg):
                   newUrg = best(claudeUrg, currentUrg);
                 }
                 // Sla geslacht/leeftijd/terugbelverzoek op in meta
+                // Alleen overschrijven als nieuwe waarde beter is (niet ONBEKEND)
                 const geslacht = (parsed.geslacht || 'ONBEKEND').toUpperCase();
                 const leeftijd = (parsed.leeftijd || 'ONBEKEND').toUpperCase();
-                if (['MAN','VROUW','ONBEKEND'].includes(geslacht)) meta.geslacht = geslacht;
-                if (['KIND','VOLWASSENE','SENIOR','ONBEKEND'].includes(leeftijd)) meta.leeftijd = leeftijd;
+                if (['MAN','VROUW'].includes(geslacht)) meta.geslacht = geslacht;
+                else if (!meta.geslacht) meta.geslacht = 'ONBEKEND';
+                if (['KIND','VOLWASSENE','SENIOR'].includes(leeftijd)) meta.leeftijd = leeftijd;
+                else if (!meta.leeftijd) meta.leeftijd = 'ONBEKEND';
                 if (parsed.terugbelverzoek === true) {
                   meta.terugbelverzoek = true;
                   meta.terugbel_reden  = parsed.terugbel_reden || '';
                 }
-                console.log(`[webhook] profiel: ${geslacht} / ${leeftijd}, terugbel: ${!!parsed.terugbelverzoek}`);
+                console.log(`[webhook] profiel opgeslagen: geslacht=${meta.geslacht} leeftijd=${meta.leeftijd} terugbel=${!!meta.terugbelverzoek}`);
               }
             } catch (err) {
               console.error('[webhook] Claude live analyse mislukt:', err.message);
