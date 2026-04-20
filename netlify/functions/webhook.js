@@ -112,6 +112,7 @@ async function analyzeCall(transcript) {
 
     const result = JSON.parse(match[0]);
     console.log('[webhook] Claude analyse:', JSON.stringify(result));
+    console.log('Analyse velden:', { gender: result.gender, name: result.name, age_category: result.age_category });
     return result;
   } catch (err) {
     console.error('[webhook] analyzeCall mislukt:', err.message);

@@ -129,10 +129,12 @@ exports.handler = async (event) => {
       const results = await pipeline.exec();
 
       vapiCalls.forEach((call, i) => {
+        const meta = results[i * 3 + 2] || {};
+        console.log('Call data uit Redis:', JSON.stringify({ callId: call.id.slice(0,8), gender: meta.gender, name: meta.name, age_category: meta.age_category, callback_requested: meta.callback_requested }));
         enrichmentMap[call.id] = {
           transcript:        results[i * 3]     || null,
           urgency:           results[i * 3 + 1] || null,
-          meta:              results[i * 3 + 2] || {}
+          meta
         };
       });
     } catch (err) {
