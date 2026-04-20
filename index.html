@@ -352,13 +352,38 @@ tailwind.config = {
 const POLL_MS    = 2000;
 const MAX_RECENT = 20;
 
-// ── Beller-profiel tekst ──────────────────────────────────────────────
+// ── Beller-profiel tekst + badges ────────────────────────────────────
 
 function bellerProfielTekst(geslacht, leeftijd) {
   const delen = [];
   if (geslacht && geslacht !== 'ONBEKEND') delen.push(geslacht.charAt(0) + geslacht.slice(1).toLowerCase());
   if (leeftijd && leeftijd !== 'ONBEKEND') delen.push(leeftijd.charAt(0) + leeftijd.slice(1).toLowerCase());
   return delen.length > 0 ? ' · ' + delen.join(' · ') : '';
+}
+
+function bellerBadgesHtml(call) {
+  const badges = [];
+
+  // Naam
+  const naam = (call.callerName && call.callerName !== 'Onbekende beller') ? call.callerName : null;
+  if (naam) {
+    const voornaam = naam.split(' ')[0];
+    badges.push(`<span class="px-2 py-0.5 rounded-full bg-slate-700/70 text-slate-300 text-xs font-medium border border-slate-600/40">${esc(voornaam)}</span>`);
+  }
+
+  // Geslacht
+  const g = call.geslacht || 'ONBEKEND';
+  if (g === 'MAN')   badges.push(`<span class="px-2 py-0.5 rounded-full bg-blue-900/50 text-blue-300 text-xs font-medium border border-blue-700/40">♂ Man</span>`);
+  if (g === 'VROUW') badges.push(`<span class="px-2 py-0.5 rounded-full bg-pink-900/50 text-pink-300 text-xs font-medium border border-pink-700/40">♀ Vrouw</span>`);
+
+  // Leeftijd
+  const l = call.leeftijd || 'ONBEKEND';
+  const leeftijdLabel = { KIND: 'Kind', VOLWASSENE: 'Volwassene', SENIOR: 'Senior' }[l];
+  if (leeftijdLabel) badges.push(`<span class="px-2 py-0.5 rounded-full bg-slate-700/70 text-slate-300 text-xs font-medium border border-slate-600/40">${leeftijdLabel}</span>`);
+
+  return badges.length > 0
+    ? `<div class="flex flex-wrap gap-1.5 mt-2">${badges.join('')}</div>`
+    : '';
 }
 
 // ── Kaartconfiguratie per urgentieniveau ──────────────────────────────
@@ -520,6 +545,7 @@ function buildCard(call) {
           </p>
           ${displayName !== displayPhone
             ? `<p class="text-sm text-slate-400 mt-0.5">${esc(displayName)}</p>` : ''}
+          ${bellerBadgesHtml(call)}
           <p class="text-xs text-slate-500 mt-1">
             <span class="duration-live" data-start="${esc(call.startTime)}">${fmtDuur(call.startTime, live ? null : call.endTime)}</span>
             · ${timeSince(call.startTime)}
@@ -646,8 +672,9 @@ function updateRecentTable(calls) {
           ${fmtTime(call.endTime || call.lastUpdated)}
         </td>
         <td class="px-4 py-4">
-          <p class="font-bold text-slate-200 text-sm">${esc(phone)}<span class="font-normal text-slate-500 text-xs">${esc(bellerProfielTekst(call.geslacht, call.leeftijd))}</span></p>
-          <p class="text-xs text-slate-400 mt-0.5 max-w-sm truncate">${esc(summary)}</p>
+          <p class="font-bold text-slate-200 text-sm">${esc(phone)}</p>
+          <div class="flex flex-wrap gap-1 mt-1">${bellerBadgesHtml(call)}</div>
+          <p class="text-xs text-slate-400 mt-1 max-w-sm truncate">${esc(summary)}</p>
         </td>
         <td class="px-4 py-4 text-slate-400 text-sm whitespace-nowrap">
           ${fmtDuur(call.startTime, call.endTime)}
@@ -681,11 +708,20 @@ function openModal(idx) {
   const phone = (call.phoneNumber && call.phoneNumber !== 'Onbekend')
     ? fmtTel(call.phoneNumber) : 'Onbekend nummer';
 
-  const profiel = bellerProfielTekst(call.geslacht, call.leeftijd);
-  document.getElementById('modalBar').style.background    = URGENCY_BAR_COLOR[lvl] || '#10b981';
-  document.getElementById('modalPhone').textContent        = phone + profiel;
-  document.getElementById('modalMeta').textContent         =
+  document.getElementById('modalBar').style.background = URGENCY_BAR_COLOR[lvl] || '#10b981';
+  document.getElementById('modalPhone').textContent     = phone;
+  document.getElementById('modalMeta').textContent      =
     `${fmtTime(call.startTime)} → ${fmtTime(call.endTime)}  ·  Duur: ${fmtDuur(call.startTime, call.endTime)}`;
+
+  // Badges in modal
+  let modalBadgesEl = document.getElementById('modalBadges');
+  if (!modalBadgesEl) {
+    modalBadgesEl = document.createElement('div');
+    modalBadgesEl.id = 'modalBadges';
+    modalBadgesEl.className = 'px-6 pb-2';
+    document.getElementById('modalPhone').parentElement.appendChild(modalBadgesEl);
+  }
+  modalBadgesEl.innerHTML = bellerBadgesHtml(call);
 
   const urgencyEl = document.getElementById('modalUrgency');
   urgencyEl.className = `mx-6 mb-4 px-4 py-3 rounded-2xl border text-sm ${URGENCY_BADGE_MODAL[lvl]}`;

@@ -347,6 +347,10 @@ Bepaal:
 - Geslacht: MAN, VROUW of ONBEKEND
 - Leeftijd: KIND (onder 16), VOLWASSENE, SENIOR (boven 65) of ONBEKEND
 
+Bepaal ook wie de beller is:
+- Geslacht: MAN als de beller expliciete mannelijke voornaamwoorden (hij/zijn/meneer) of een mannelijke voornaam gebruikt. VROUW als de beller expliciete vrouwelijke voornaamwoorden (zij/haar/mevrouw) of een vrouwelijke voornaam gebruikt. ONBEKEND als er geen duidelijke aanwijzingen zijn — gok NOOIT op basis van een achternaam.
+- Leeftijd: KIND (onder 16), VOLWASSENE, SENIOR (boven 65) of ONBEKEND op basis van taalgebruik en context.
+
 Bepaal ook of de beller een TERUGBELVERZOEK heeft gedaan:
 - terugbelverzoek: true als beller vraagt om teruggebeld te worden, zijn/haar nummer geeft, of vraagt of iemand terugbelt
 - terugbel_reden: één zin met de reden van het terugbelverzoek (leeg als geen terugbelverzoek)
@@ -385,6 +389,7 @@ Antwoord uitsluitend met JSON (geen uitleg):
                   meta.terugbelverzoek = true;
                   meta.terugbel_reden  = parsed.terugbel_reden || '';
                 }
+                console.log('[webhook] Claude analyse resultaat:', JSON.stringify({ urgentie: parsed.urgentie, geslacht: parsed.geslacht, leeftijd: parsed.leeftijd, terugbelverzoek: parsed.terugbelverzoek }));
                 console.log(`[webhook] profiel opgeslagen: geslacht=${meta.geslacht} leeftijd=${meta.leeftijd} terugbel=${!!meta.terugbelverzoek}`);
               }
             } catch (err) {
