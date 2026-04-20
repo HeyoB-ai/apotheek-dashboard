@@ -6,6 +6,12 @@
   node_bundler = "esbuild"
 
 [[redirects]]
+  from = "https://www.apotheek-dashboard.netlify.app/*"
+  to = "https://apotheek-dashboard.netlify.app/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
   from = "/api/webhook"
   to = "/.netlify/functions/webhook"
   status = 200
