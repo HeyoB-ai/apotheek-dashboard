@@ -282,7 +282,7 @@ exports.handler = async (event) => {
             try {
               const client = new Anthropic({ apiKey });
               const response = await client.messages.create({
-                model: 'claude-haiku-4-5-20251001', max_tokens: 80, temperature: 0,
+                model: 'claude-haiku-4-5-20251001', max_tokens: 120, temperature: 0,
                 messages: [{
                   role: 'user',
                   content: `Je bent een Nederlandse apotheek triage assistent. Analyseer ALLEEN de berichten van de BELLER (niet van de assistent Lisa).
@@ -320,11 +320,15 @@ Bepaal:
 - Geslacht: MAN, VROUW of ONBEKEND
 - Leeftijd: KIND (onder 16), VOLWASSENE, SENIOR (boven 65) of ONBEKEND
 
+Bepaal ook of de beller een TERUGBELVERZOEK heeft gedaan:
+- terugbelverzoek: true als beller vraagt om teruggebeld te worden, zijn/haar nummer geeft, of vraagt of iemand terugbelt
+- terugbel_reden: één zin met de reden van het terugbelverzoek (leeg als geen terugbelverzoek)
+
 Beller-berichten (alleen de beller, niet de assistent):
 ${gesprek}
 
 Antwoord uitsluitend met JSON (geen uitleg):
-{"urgentie":"GROEN","geslacht":"ONBEKEND","leeftijd":"ONBEKEND"}`
+{"urgentie":"GROEN","geslacht":"ONBEKEND","leeftijd":"ONBEKEND","terugbelverzoek":false,"terugbel_reden":""}`
                 }]
               });
 
@@ -342,12 +346,16 @@ Antwoord uitsluitend met JSON (geen uitleg):
                   };
                   newUrg = best(claudeUrg, currentUrg);
                 }
-                // Sla geslacht/leeftijd op in meta
+                // Sla geslacht/leeftijd/terugbelverzoek op in meta
                 const geslacht = (parsed.geslacht || 'ONBEKEND').toUpperCase();
                 const leeftijd = (parsed.leeftijd || 'ONBEKEND').toUpperCase();
                 if (['MAN','VROUW','ONBEKEND'].includes(geslacht)) meta.geslacht = geslacht;
                 if (['KIND','VOLWASSENE','SENIOR','ONBEKEND'].includes(leeftijd)) meta.leeftijd = leeftijd;
-                console.log(`[webhook] profiel: ${geslacht} / ${leeftijd}`);
+                if (parsed.terugbelverzoek === true) {
+                  meta.terugbelverzoek = true;
+                  meta.terugbel_reden  = parsed.terugbel_reden || '';
+                }
+                console.log(`[webhook] profiel: ${geslacht} / ${leeftijd}, terugbel: ${!!parsed.terugbelverzoek}`);
               }
             } catch (err) {
               console.error('[webhook] Claude live analyse mislukt:', err.message);
