@@ -118,6 +118,22 @@ tailwind.config = {
   .transcript-scroll::-webkit-scrollbar       { width: 3px; }
   .transcript-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 2px; }
   .transcript-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 2px; }
+
+  /* ── Terugbelverzoeken scrollbar ─────────────────────────────────── */
+  .terugbel-scroll::-webkit-scrollbar       { width: 4px; }
+  .terugbel-scroll::-webkit-scrollbar-track { background: transparent; }
+  .terugbel-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+  /* ── Terugbelverzoeken fade-out onderaan ─────────────────────────── */
+  .terugbel-fade::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2rem;
+    background: linear-gradient(to bottom, transparent, rgba(23,37,84,0.85));
+    pointer-events: none;
+    border-radius: 0 0 0.5rem 0.5rem;
+  }
 </style>
 </head>
 <body class="text-on-surface bg-surface">
@@ -233,7 +249,9 @@ tailwind.config = {
           <p class="text-sm font-medium opacity-90">Terugbelverzoeken</p>
         </div>
         <!-- Detail rijen -->
-        <div id="terugbelLijst" class="mt-4 space-y-2 max-h-40 overflow-y-auto hidden"></div>
+        <div class="relative terugbel-fade mt-4">
+          <div id="terugbelLijst" class="terugbel-scroll max-h-40 overflow-y-auto hidden"></div>
+        </div>
       </div>
 
     </section>
@@ -818,14 +836,15 @@ function updateStats(calls) {
   const lijst = document.getElementById('terugbelLijst');
   if (terugbelCalls.length > 0) {
     lijst.classList.remove('hidden');
-    lijst.innerHTML = terugbelCalls.map(c => {
+    lijst.innerHTML = terugbelCalls.map((c, i, arr) => {
       const phone   = (c.phoneNumber && c.phoneNumber !== 'Onbekend') ? fmtTel(c.phoneNumber) : 'Onbekend';
       const profiel = bellerProfielTekst(c.geslacht, c.leeftijd);
       const reden   = c.callback_reason ? esc(c.callback_reason.slice(0, 60)) : '—';
+      const border  = i < arr.length - 1 ? ' border-b border-blue-700/30' : '';
       return `
-        <div class="bg-blue-800/40 rounded-xl px-3 py-2 text-xs">
-          <p class="font-bold text-blue-100">${esc(phone)}<span class="font-normal text-blue-300">${esc(profiel)}</span></p>
-          <p class="text-blue-300 mt-0.5 truncate">${reden}</p>
+        <div class="px-3 py-3 text-xs${border}">
+          <p class="font-bold text-blue-100">${esc(phone)}<span class="font-normal text-blue-300 ml-1">${esc(profiel)}</span></p>
+          <p class="text-blue-300/80 mt-1 truncate">${reden}</p>
         </div>`;
     }).join('');
   } else {
