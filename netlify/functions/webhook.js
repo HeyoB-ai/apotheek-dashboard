@@ -57,10 +57,13 @@ Bepaal de volgende velden:
 
 1. urgency — Urgentieniveau van het gesprek:
    - "urgent": levensbedreigende situaties, ernstige bijwerkingen, vergiftiging, bewusteloosheid, ademhalingsproblemen, hevige pijn, suïcidale gedachten
-   - "attention": de beller heeft een specifieke medische vraag voor de apotheker die opvolging vereist, onduidelijkheid over medicatie of dosering, milde bijwerkingen, verwarring over een voorschrift
+   - "attention": de beller heeft een concrete medische vraag voor de apotheker die directe opvolging vereist (bijv. bijwerking, twijfel over dosering, onduidelijkheid over een voorschrift)
    - "routine": openingstijden, locatie, herhaalrecept aanvragen, algemene vragen, terugbelverzoeken zonder medische urgentie, doorverbindpogingen zonder specifieke medische vraag, gesprekken die volledig zijn afgerond zonder openstaande medische acties
 
-   Belangrijk: een terugbelverzoek is op zichzelf ALTIJD routine, tenzij de reden voor het terugbelverzoek medisch urgent of aandachtsvereisend is. Kies bij twijfel tussen attention en routine altijd voor routine in een apotheekcontext — niet elk gesprek hoeft opgevolgd te worden.
+   STRIKTE REGEL — terugbelverzoeken:
+   Een terugbelverzoek (de beller wil teruggebeld worden, of Lisa biedt aan terug te bellen) is ALTIJD "routine", TENZIJ de beller in hetzelfde gesprek een concrete medische klacht of urgente situatie noemt. Het enkele feit dat iemand teruggebeld wil worden is NOOIT genoeg voor "attention" of "urgent". Gebruik in dat geval VERPLICHT "routine".
+
+   Kies bij twijfel tussen "attention" en "routine" altijd voor "routine" — niet elk gesprek hoeft opgevolgd te worden.
 
 2. urgency_reason — Één Nederlandse zin die uitlegt waarom dit urgentieniveau is gekozen.
 
