@@ -56,12 +56,15 @@ Analyseer de onderstaande transcriptie en retourneer ALLEEN een JSON-object, zon
 Bepaal de volgende velden:
 
 1. urgency — Urgentieniveau van het gesprek:
-   - "urgent": levensbedreigende situaties, ernstige bijwerkingen, vergiftiging, bewusteloosheid, ademhalingsproblemen, hevige pijn, suïcidale gedachten
+   - "urgent": uitsluitend medische noodsituaties — levensbedreigende situaties, ernstige bijwerkingen, vergiftiging, bewusteloosheid, ademhalingsproblemen, hevige pijn, suïcidale gedachten. Logistieke problemen (bezorging, zendingstatus, vermiste pakketten) zijn NOOIT urgent.
    - "attention": de beller heeft een concrete medische vraag voor de apotheker die directe opvolging vereist (bijv. bijwerking, twijfel over dosering, onduidelijkheid over een voorschrift)
-   - "routine": openingstijden, locatie, herhaalrecept aanvragen, algemene vragen, terugbelverzoeken zonder medische urgentie, doorverbindpogingen zonder specifieke medische vraag, gesprekken die volledig zijn afgerond zonder openstaande medische acties
+   - "routine": openingstijden, locatie, herhaalrecept aanvragen, algemene vragen, terugbelverzoeken zonder medische urgentie, doorverbindpogingen zonder specifieke medische vraag, gesprekken die volledig zijn afgerond zonder openstaande medische acties, vragen over bezorging of zendingstatus (ook als de zending niet ontvangen is of vermist lijkt)
 
    STRIKTE REGEL — terugbelverzoeken:
    Een terugbelverzoek (de beller wil teruggebeld worden, of Lisa biedt aan terug te bellen) is ALTIJD "routine", TENZIJ de beller in hetzelfde gesprek een concrete medische klacht of urgente situatie noemt. Het enkele feit dat iemand teruggebeld wil worden is NOOIT genoeg voor "attention" of "urgent". Gebruik in dat geval VERPLICHT "routine".
+
+   STRIKTE REGEL — bezorging en logistiek:
+   Meldingen zoals "niet ontvangen", "nog niet bezorgd", "pakketje kwijt", "zending gemist" of vragen over de bezorgstatus zijn ALTIJD "routine", zonder uitzondering. Logistieke problemen hebben geen medische urgentie en mogen NOOIT als "attention" of "urgent" worden geclassificeerd.
 
    Kies bij twijfel tussen "attention" en "routine" altijd voor "routine" — niet elk gesprek hoeft opgevolgd te worden.
 
