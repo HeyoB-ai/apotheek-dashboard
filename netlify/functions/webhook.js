@@ -7,6 +7,7 @@
 
 const Anthropic  = require('@anthropic-ai/sdk');
 const { Redis }  = require('@upstash/redis');
+const { parseMessages, extractPhoneNumber } = require('./lib/shared');
 
 const REDIS_TTL    = 3600;
 const URGENCY_RANK = { routine: 0, attention: 1, urgent: 2 };
@@ -216,8 +217,8 @@ exports.handler = async (event) => {
   let currentUrg = (await redis.get(urgentieKey))   || { level: 'routine', reason: 'Gesprek gestart.' };
   let meta       = (await redis.get(metaKey))        || {};
 
-  const phoneNumber = call.customer?.number || call.customer?.phoneNumber || call.phoneNumber || null;
-  const callerName  = call.customer?.name   || null;
+  const phoneNumber = extractPhoneNumber(call, meta);
+  const callerName  = call.customer?.name || null;
   if (phoneNumber) meta.phoneNumber = phoneNumber;
   if (callerName)  meta.callerName  = callerName;
 
@@ -237,10 +238,8 @@ exports.handler = async (event) => {
       meta.status = 'ended';
       meta.transcriptPartial = '';
 
-      if (msg.messages && Array.isArray(msg.messages)) {
-        const finalLines = msg.messages
-          .filter(m => (m.role === 'user' || m.role === 'bot' || m.role === 'assistant') && m.message?.trim())
-          .map(m => ({ role: m.role === 'bot' ? 'assistant' : m.role, text: m.message.trim() }));
+      if (Array.isArray(msg.messages)) {
+        const finalLines = parseMessages(msg.messages);   // accepteert message/content/text
         if (finalLines.length > 0) transcript = finalLines;
       }
       await redis.set(transcriptKey, transcript, { ex: REDIS_TTL });
@@ -311,7 +310,8 @@ exports.handler = async (event) => {
     }
 
     default:
-      console.log(`[webhook] Onbekend event: ${type}`);
+      // Informatief: toont de top-level velden, zodat een hernoemd Vapi-event opvalt.
+      console.log(`[webhook] Onbehandeld event: ${type} — keys: ${Object.keys(msg).join(', ')}`);
   }
 
   // ── Actieve-calls index bijhouden (los van REST-timing) ─────────────────────
