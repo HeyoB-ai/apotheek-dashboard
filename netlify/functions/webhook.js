@@ -10,6 +10,7 @@ const { Redis }  = require('@upstash/redis');
 
 const REDIS_TTL    = 3600;
 const URGENCY_RANK = { routine: 0, attention: 1, urgent: 2 };
+const ACTIVE_SET   = 'active-calls';   // Redis-set met live call-ids (los van REST-timing)
 
 // Tijdelijke diagnose-logging (Fase 1): zet env DEBUG_DIAGNOSE=1 in Netlify aan
 const DEBUG = process.env.DEBUG_DIAGNOSE === '1';
@@ -311,6 +312,27 @@ exports.handler = async (event) => {
 
     default:
       console.log(`[webhook] Onbekend event: ${type}`);
+  }
+
+  // ── Actieve-calls index bijhouden (los van REST-timing) ─────────────────────
+  // Terminaal event → geëindigd markeren + uit de set verwijderen.
+  // Elk ander (niet-terminaal) event → actief markeren + in de set plaatsen,
+  // óók nieuwe/onbekende types zoals het Vapi 'assistant.started'-event.
+  const isTerminal = ['call.ended', 'end-of-call-report', 'hang'].includes(type)
+    || (type === 'status-update' && msg.status === 'ended');
+
+  if (isTerminal) {
+    meta.status = 'ended';
+    try { await redis.srem(ACTIVE_SET, callId); }
+    catch (err) { console.warn('[webhook] active-calls srem mislukt:', err.message); }
+  } else if (meta.status !== 'ended') {
+    meta.status   = 'active';
+    meta.everLive = true;
+    if (!meta.startTime) meta.startTime = call.createdAt || new Date().toISOString();
+    try {
+      await redis.sadd(ACTIVE_SET, callId);
+      await redis.expire(ACTIVE_SET, REDIS_TTL);
+    } catch (err) { console.warn('[webhook] active-calls sadd mislukt:', err.message); }
   }
 
   meta.updatedAt = new Date().toISOString();

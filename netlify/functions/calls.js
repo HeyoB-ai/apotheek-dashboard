@@ -2,15 +2,19 @@
  * Calls API
  * - Haalt gesprekken op via Vapi API (met 4s cache tegen 429)
  * - Verrijkt met live transcript + urgentie uit Upstash Redis
+ * - Toont actieve gesprekken óók als de Vapi REST-lijst ze nog niet bevat
+ *   (gevoed vanuit de Redis active-calls-set die de webhook bijhoudt)
  * - Urgentie gaat alleen omhoog
  */
 
 const { Redis } = require('@upstash/redis');
+const { extractPhoneNumber, parseMessages, isCallActive } = require('./lib/shared');
 
 const VAPI_BASE    = 'https://api.vapi.ai';
 const MAX_CALLS    = 20;
 const CACHE_TTL_MS = 4000;
 const URGENCY_RANK = { routine: 0, attention: 1, urgent: 2 };
+const ACTIVE_SET   = 'active-calls';
 
 // Tijdelijke diagnose-logging (Fase 1): zet env DEBUG_DIAGNOSE=1 in Netlify aan
 const DEBUG = process.env.DEBUG_DIAGNOSE === '1';
@@ -56,17 +60,64 @@ function bestUrgency(a, b) {
   return ra >= rb ? a : b;
 }
 
-// ─── Vapi berichten → dashboard transcript ────────────────────────────────────
+// ─── Eén call (REST óf Redis-only) → dashboard-vorm ──────────────────────────
+// Werkt zowel op een Vapi REST call-object als op een synthetisch object
+// ({ id, status:'in-progress' }) dat enkel uit Redis-meta wordt aangevuld.
 
-function parseVapiMessages(messages) {
-  if (!Array.isArray(messages)) return [];
-  return messages
-    .filter(m => (m.role === 'user' || m.role === 'bot' || m.role === 'assistant') && m.message?.trim())
-    .map(m => ({
-      role: m.role === 'bot' ? 'assistant' : m.role,
-      text: m.message.trim(),
-      time: m.time ?? null
-    }));
+function mapCall(call, enrich) {
+  const isActive = isCallActive(call);
+  const meta     = enrich.meta || {};
+
+  // Transcript: Redis (live) heeft prioriteit voor actieve gesprekken
+  const vapiTranscript  = parseMessages(call.messages);
+  const redisTranscript = Array.isArray(enrich.transcript) ? enrich.transcript : null;
+  const transcript      = (isActive && redisTranscript?.length > 0)
+    ? redisTranscript
+    : (vapiTranscript.length > 0 ? vapiTranscript : (redisTranscript || []));
+
+  const transcriptText = transcript.map(t => t.text || '').join(' ');
+
+  // Urgentie: Redis (Claude) vs keyword — neem hoogste
+  const keywordUrg = keywordUrgency(transcriptText);
+  const urgency    = bestUrgency(enrich.urgency, keywordUrg);
+
+  // Telefoonnummer — centrale fallback-keten
+  const phoneNumber = extractPhoneNumber(call, meta) || 'Onbekend';
+
+  const callerName = (call.customer?.name && call.customer.name !== 'Onbekende beller')
+    ? call.customer.name
+    : (meta.callerName || 'Onbekende beller');
+
+  const transcriptPartial = isActive ? (meta.transcriptPartial || '') : '';
+  const summary = meta.summaryNl || meta.summary || null;
+
+  const gender       = meta.gender       || 'onbekend';
+  const name         = meta.name         || null;
+  const age_category = meta.age_category || 'onbekend';
+  const callback_requested = meta.callback_requested || false;
+  const callback_reason    = meta.callback_reason    || null;
+  const topics             = meta.topics             || [];
+
+  return {
+    id:               call.id,
+    status:           isActive ? 'active' : 'ended',
+    phoneNumber,
+    callerName:       name || callerName,
+    startTime:        call.startedAt || call.createdAt || meta.startTime,
+    endTime:          call.endedAt   || null,
+    transcript,
+    transcriptPartial,
+    transcriptRaw:    typeof call.transcript === 'string' ? call.transcript : null,
+    urgency,
+    summary,
+    gender,
+    name,
+    age_category,
+    callback_requested,
+    callback_reason,
+    topics,
+    lastUpdated:      meta.updatedAt || call.updatedAt || call.endedAt || call.startedAt || call.createdAt || meta.startTime
+  };
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
@@ -116,34 +167,38 @@ exports.handler = async (event) => {
 
   if (!Array.isArray(vapiCalls)) vapiCalls = [];
 
-  // ── Diagnose (Fase 1): ruwe Vapi-statussen + één sample ────────────────────
-  if (DEBUG) {
-    console.log('[diag calls] VAPI CALLS:', JSON.stringify(
-      vapiCalls.map(c => ({ id: c.id?.slice(0, 8), status: c.status, endedAt: c.endedAt }))));
-    console.log('[diag calls] SAMPLE:', JSON.stringify(vapiCalls[0] ?? null).slice(0, 3000));
+  // ── Redis: active-calls-set + verrijkingsdata ──────────────────────────────
+  const redis = getRedis();
+
+  // Welke calls staan volgens de webhook live? (los van REST-timing)
+  let activeIds = [];
+  if (redis) {
+    try { activeIds = (await redis.smembers(ACTIVE_SET)) || []; }
+    catch (err) { console.warn('[calls] active-calls ophalen mislukt:', err.message); }
   }
 
-  // ── Redis verrijkingsdata ophalen ──────────────────────────────────────────
-  const redis = getRedis();
-  const enrichmentMap = {};
+  const vapiIdSet      = new Set(vapiCalls.map(c => c.id));
+  const extraActiveIds = activeIds.filter(id => id && !vapiIdSet.has(id));
 
-  if (redis && vapiCalls.length > 0) {
+  // Verrijking ophalen voor REST-calls én redis-only actieve calls
+  const enrichmentMap = {};
+  const idsToEnrich   = [...vapiCalls.map(c => c.id), ...extraActiveIds];
+
+  if (redis && idsToEnrich.length > 0) {
     try {
-      // Batch fetch: transcript, urgentie en meta voor alle calls tegelijk
       const pipeline = redis.pipeline();
-      for (const call of vapiCalls) {
-        pipeline.get(`transcript-${call.id}`);
-        pipeline.get(`urgentie-${call.id}`);
-        pipeline.get(`meta-${call.id}`);
+      for (const id of idsToEnrich) {
+        pipeline.get(`transcript-${id}`);
+        pipeline.get(`urgentie-${id}`);
+        pipeline.get(`meta-${id}`);
       }
       const results = await pipeline.exec();
 
-      vapiCalls.forEach((call, i) => {
-        const meta = results[i * 3 + 2] || {};
-        enrichmentMap[call.id] = {
-          transcript:        results[i * 3]     || null,
-          urgency:           results[i * 3 + 1] || null,
-          meta
+      idsToEnrich.forEach((id, i) => {
+        enrichmentMap[id] = {
+          transcript: results[i * 3]     || null,
+          urgency:    results[i * 3 + 1] || null,
+          meta:       results[i * 3 + 2] || {}
         };
       });
     } catch (err) {
@@ -151,67 +206,32 @@ exports.handler = async (event) => {
     }
   }
 
-  // ── Mappen + verrijken ────────────────────────────────────────────────────
-  const calls = vapiCalls.map(call => {
-    const enrich  = enrichmentMap[call.id] || {};
-    const isActive = call.status === 'in-progress';
-
-    // Transcript: Redis (live) heeft prioriteit voor actieve gesprekken
-    const vapiTranscript  = parseVapiMessages(call.messages);
-    const redisTranscript = Array.isArray(enrich.transcript) ? enrich.transcript : null;
-    const transcript      = (isActive && redisTranscript?.length > 0)
-      ? redisTranscript
-      : (vapiTranscript.length > 0 ? vapiTranscript : (redisTranscript || []));
-
-    const transcriptText = transcript.map(t => t.text || '').join(' ');
-
-    // Urgentie: Redis (Claude) vs keyword — neem hoogste
-    const keywordUrg  = keywordUrgency(transcriptText);
-    const urgency     = bestUrgency(enrich.urgency, keywordUrg);
-
-    // Telefoonnummer — meerdere veldpaden proberen
-    const meta = enrich.meta || {};
-    const phoneNumber = call.customer?.number
-      || call.customer?.phoneNumber
-      || call.phoneNumber
-      || meta.phoneNumber
-      || 'Onbekend';
-
-    const callerName = (call.customer?.name && call.customer.name !== 'Onbekende beller')
-      ? call.customer.name
-      : (meta.callerName || 'Onbekende beller');
-
-    const transcriptPartial = isActive ? (meta.transcriptPartial || '') : '';
-    const summary = meta.summaryNl || meta.summary || null;
-
-    const gender       = meta.gender       || 'onbekend';
-    const name         = meta.name         || null;
-    const age_category = meta.age_category || 'onbekend';
-    const callback_requested = meta.callback_requested || false;
-    const callback_reason    = meta.callback_reason    || null;
-    const topics             = meta.topics             || [];
-
-    return {
-      id:               call.id,
-      status:           isActive ? 'active' : 'ended',
-      phoneNumber,
-      callerName:       name || callerName,
-      startTime:        call.startedAt || call.createdAt,
-      endTime:          call.endedAt   || null,
-      transcript,
-      transcriptPartial,
-      transcriptRaw:    typeof call.transcript === 'string' ? call.transcript : null,
-      urgency,
-      summary,
-      gender,
-      name,
-      age_category,
-      callback_requested,
-      callback_reason,
-      topics,
-      lastUpdated:      meta.updatedAt || call.updatedAt || call.endedAt || call.startedAt || call.createdAt
-    };
+  // Redis-only actieve calls die echt nog lopen (meta aanwezig, niet geëindigd)
+  const liveOnlyIds = extraActiveIds.filter(id => {
+    const m = enrichmentMap[id]?.meta;
+    return m && Object.keys(m).length > 0 && m.status !== 'ended';
   });
+
+  // Geëindigde maar nog-in-de-set leden best-effort opruimen
+  const staleIds = extraActiveIds.filter(id => !liveOnlyIds.includes(id));
+  if (redis && staleIds.length > 0) {
+    Promise.all(staleIds.map(id => redis.srem(ACTIVE_SET, id).catch(() => {}))).catch(() => {});
+  }
+
+  // Synthetische call-objecten voor de redis-only live gesprekken
+  const syntheticCalls = liveOnlyIds.map(id => ({ id, status: 'in-progress' }));
+  const allCalls       = vapiCalls.concat(syntheticCalls);
+
+  // ── Diagnose (Fase 1) ──────────────────────────────────────────────────────
+  if (DEBUG) {
+    console.log('[diag calls] VAPI CALLS:', JSON.stringify(
+      vapiCalls.map(c => ({ id: c.id?.slice(0, 8), status: c.status, endedAt: c.endedAt }))));
+    console.log('[diag calls] SAMPLE:', JSON.stringify(vapiCalls[0] ?? null).slice(0, 3000));
+    console.log('[diag calls] active-set:', activeIds.length, '| redis-only live:', liveOnlyIds.length);
+  }
+
+  // ── Mappen + verrijken ────────────────────────────────────────────────────
+  const calls = allCalls.map(call => mapCall(call, enrichmentMap[call.id] || {}));
 
   // Actief eerst, dan urgentie omlaag, dan nieuwste boven
   calls.sort((a, b) => {
