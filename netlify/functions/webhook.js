@@ -11,6 +11,9 @@ const { Redis }  = require('@upstash/redis');
 const REDIS_TTL    = 3600;
 const URGENCY_RANK = { routine: 0, attention: 1, urgent: 2 };
 
+// Tijdelijke diagnose-logging (Fase 1): zet env DEBUG_DIAGNOSE=1 in Netlify aan
+const DEBUG = process.env.DEBUG_DIAGNOSE === '1';
+
 function best(a, b) {
   return (URGENCY_RANK[a?.level] ?? 0) >= (URGENCY_RANK[b?.level] ?? 0) ? a : b;
 }
@@ -190,6 +193,9 @@ exports.handler = async (event) => {
   const callId = call.id || msg.callId;
 
   console.log('Event type:', type, '| Call ID:', callId);
+
+  // ── Diagnose (Fase 1): alle top-level velden van het event-bericht ──────────
+  if (DEBUG) console.log('[diag webhook] type=', type, 'keys=', Object.keys(msg).join(','));
 
   if (!callId)
     return { statusCode: 200, headers, body: JSON.stringify({ status: 'genegeerd', reden: 'Geen callId' }) };

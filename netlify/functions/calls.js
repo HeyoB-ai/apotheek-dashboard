@@ -12,6 +12,9 @@ const MAX_CALLS    = 20;
 const CACHE_TTL_MS = 4000;
 const URGENCY_RANK = { routine: 0, attention: 1, urgent: 2 };
 
+// Tijdelijke diagnose-logging (Fase 1): zet env DEBUG_DIAGNOSE=1 in Netlify aan
+const DEBUG = process.env.DEBUG_DIAGNOSE === '1';
+
 // ─── Vapi response cache (voorkomt 429) ──────────────────────────────────────
 let vapiCache     = null;
 let vapiCacheTime = 0;
@@ -113,6 +116,13 @@ exports.handler = async (event) => {
 
   if (!Array.isArray(vapiCalls)) vapiCalls = [];
 
+  // ── Diagnose (Fase 1): ruwe Vapi-statussen + één sample ────────────────────
+  if (DEBUG) {
+    console.log('[diag calls] VAPI CALLS:', JSON.stringify(
+      vapiCalls.map(c => ({ id: c.id?.slice(0, 8), status: c.status, endedAt: c.endedAt }))));
+    console.log('[diag calls] SAMPLE:', JSON.stringify(vapiCalls[0] ?? null).slice(0, 3000));
+  }
+
   // ── Redis verrijkingsdata ophalen ──────────────────────────────────────────
   const redis = getRedis();
   const enrichmentMap = {};
@@ -130,7 +140,6 @@ exports.handler = async (event) => {
 
       vapiCalls.forEach((call, i) => {
         const meta = results[i * 3 + 2] || {};
-        console.log('Call data uit Redis:', JSON.stringify({ callId: call.id.slice(0,8), gender: meta.gender, name: meta.name, age_category: meta.age_category, callback_requested: meta.callback_requested }));
         enrichmentMap[call.id] = {
           transcript:        results[i * 3]     || null,
           urgency:           results[i * 3 + 1] || null,
@@ -181,8 +190,6 @@ exports.handler = async (event) => {
     const callback_requested = meta.callback_requested || false;
     const callback_reason    = meta.callback_reason    || null;
     const topics             = meta.topics             || [];
-
-    console.log(`[calls] ${call.id.slice(0,8)} gender=${gender} name=${name} age=${age_category} callback=${callback_requested}`);
 
     return {
       id:               call.id,
