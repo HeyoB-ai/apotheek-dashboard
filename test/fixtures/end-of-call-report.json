@@ -1,0 +1,13 @@
+{
+  "message": {
+    "type": "end-of-call-report",
+    "call": {
+      "id": "call-eocr-1",
+      "customer": { "number": "+31698765432" }
+    },
+    "messages": [
+      { "role": "bot", "message": "Goedemiddag, met apotheek De Kroon." },
+      { "role": "user", "content": "Hallo, met Jan. Ik wilde even iets vragen." }
+    ]
+  }
+}

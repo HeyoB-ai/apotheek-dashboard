@@ -1,0 +1,11 @@
+{
+  "message": {
+    "type": "status-update",
+    "status": "in-progress",
+    "call": {
+      "id": "call-smoke-1",
+      "createdAt": "2026-06-01T10:00:00.000Z",
+      "customer": { "number": "+31612345678" }
+    }
+  }
+}

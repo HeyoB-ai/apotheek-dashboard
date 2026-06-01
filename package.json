@@ -4,7 +4,8 @@
   "description": "Realtime apotheek telefoondashboard met AI urgentie-detectie via Vapi en Claude",
   "private": true,
   "scripts": {
-    "dev": "netlify dev"
+    "dev": "netlify dev",
+    "smoke": "node test/smoke.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

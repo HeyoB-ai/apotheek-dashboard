@@ -8,6 +8,8 @@
 const Anthropic  = require('@anthropic-ai/sdk');
 const { Redis }  = require('@upstash/redis');
 const { parseMessages, extractPhoneNumber } = require('./lib/shared');
+const { opsAlert } = require('./lib/alert');
+const canary       = require('./lib/canary');
 
 const REDIS_TTL    = 3600;
 const URGENCY_RANK = { routine: 0, attention: 1, urgent: 2 };
@@ -199,6 +201,9 @@ exports.handler = async (event) => {
   // ── Diagnose (Fase 1): alle top-level velden van het event-bericht ──────────
   if (DEBUG) console.log('[diag webhook] type=', type, 'keys=', Object.keys(msg).join(','));
 
+  // ── Schema-canary: waarschuw bij onbekende types of ontbrekende velden ──────
+  canary.inspect(type, msg);
+
   if (!callId)
     return { statusCode: 200, headers, body: JSON.stringify({ status: 'genegeerd', reden: 'Geen callId' }) };
 
@@ -322,6 +327,11 @@ exports.handler = async (event) => {
     || (type === 'status-update' && msg.status === 'ended');
 
   if (isTerminal) {
+    // Vangnet: een gesprek dat eindigt zonder ooit een actieve fase in Redis te
+    // hebben gehad, wijst op een stille breuk (bv. Vapi-schema-wijziging).
+    if (!meta.everLive) {
+      await opsAlert(`⚠️ Call ${callId} nooit live verschenen — mogelijk Vapi schema-wijziging.`);
+    }
     meta.status = 'ended';
     try { await redis.srem(ACTIVE_SET, callId); }
     catch (err) { console.warn('[webhook] active-calls srem mislukt:', err.message); }

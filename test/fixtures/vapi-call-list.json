@@ -1,0 +1,15 @@
+[
+  {
+    "id": "call-rest-active",
+    "status": "ringing",
+    "createdAt": "2026-06-01T09:50:00.000Z",
+    "customer": { "number": "+31611111111" }
+  },
+  {
+    "id": "call-rest-ended",
+    "status": "ended",
+    "startedAt": "2026-06-01T09:00:00.000Z",
+    "endedAt": "2026-06-01T09:05:00.000Z",
+    "customer": { "number": "+31622222222" }
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "message": {
+    "type": "conversation-update",
+    "call": {
+      "id": "call-smoke-1",
+      "customer": { "number": "+31612345678" }
+    },
+    "conversation": [
+      { "role": "assistant", "content": "Goedemiddag, met apotheek De Kroon, u spreekt met Lisa." },
+      { "role": "user", "content": "Hallo, met Ilse. Ik bel over mijn herhaalrecept." }
+    ]
+  }
+}
